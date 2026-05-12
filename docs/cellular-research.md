@@ -175,3 +175,65 @@ A summed-area-table optimisation for LTL/MNCC ring sums would push them to ~2 ms
 - **edgePreservationThreshold / erosionProbability / growthProbability / extendedNeighborThreshold** — present in `pageStates` but not referenced by either the control list or any rule function in the page chunk. Dead state from a prior ruleset.
 - **Coloured cells sampled from source** — the reference paints monochrome black/white. We expose the two colour swatches but do not pull per-cell colour from the source; that would diverge from the algorithm.
 - **A "reset randomly" seed mode** — the reference always seeds from the image, so this would be a different effect.
+
+---
+
+## Refinement pass — 2026-05-13
+
+Goal: graduate `cellular` from a single pingpong-on-steps loop into a multi-mode optical-illusion field. Five modes, two new params, magnetic interactive cursor. All modes hold byte-equal loops and stay under 30 ms/frame at 1280×720.
+
+### Modes shipped
+
+| Mode | Envelope | Subset animated | Perceptual lever |
+|---|---|---|---|
+| **idle** | constant | none | Defaults frame ships as the artwork |
+| **breath** | cosine pingpong (original) | `steps` | Calm depth sweep — sparse seed ↔ deep evolution |
+| **drift** | 2D sin/cos (pseudo-Perlin) | `seedShift` (additive offset to source-sample coords) | Cells migrate through a stationary CA — apparent motion without rule change |
+| **pulse** | sharp rise + slow decay | `cellSize` | Worley-style nucleus burst; lattice swells then resolves |
+| **march** | step ladder (4 holds) | `cellSize` | Stepped subdivision — texture grain visibly quantises |
+
+Byte-equal endpoints: (1) all envelopes wrap `t` to `[0,1)` so `cos(2π·t)==cos(0)==1` exactly; (2) `drift` collapses both endpoints to the same shift vector at the seam; (3) `march` ladder uses a 4-position holder array whose seam value (`t=0`) is forced to 0; (4) `pulse` envelope is naturally 0 at `t=0` and we collapse `t=1` to `t=0`.
+
+### New params
+
+- **`chirality`** (`-1..1`, default `0`) — bias the totalistic Moore-3×3 count toward diagonals (+) or cardinals (−). Implements Reynolds' insight (1987) that small asymmetries in flocking rules produce coherent emergent directionality; here we get left-leaning or right-leaning growth fronts visible in 1-2 generations.
+- **`gapTone`** (`0..255`, default `28`) — brightness of the 1px gap stroke painted at the dead-side boundary of every alive cell. Tightens grain perception via Mach-band sharpening at the cell boundary without visible linework. 0 disables (bundle-default behaviour).
+- **`focusRadius`** (`40..600` screen px) — only active in interactive mode. Inside the circle, the seed-sample point is displaced by a Reynolds-style 1/r cohesion vector pointing at the cursor. Cells *flock* toward the cursor with linear falloff; cap is ~1.5 cells of pull so the warp bends growth fronts without tearing.
+
+### Optical-illusion insights baked in
+
+1. **Apparent motion without rule change.** `drift` mode warps the *seed sample point*, not the CA rules. The eye reads "the cells are moving" but every alive cell at t=0.4 is still deterministically a function of the (shifted) seed pattern at that frame. Classic Wertheimer phi-phenomenon: motion is perceived when successive frames sample a coherent vector field.
+2. **Reynolds cohesion in 2D.** The magnetic interactive cursor uses 1/r falloff (linear inside R, zero outside) — the exact rule Reynolds (1987) used for the cohesion term in Boids. Mapped onto a CA, the *seed* flocks; the rules then propagate the displacement as a coherent growth-front bend.
+3. **Mach-band sharpening.** `gapTone` paints a 1px stroke at every dead-side cell boundary at brightness ≈ 28 against alive=0. The boundary contrast (28 vs 0 vs 255) lands inside the Mach-band sensitivity window — the eye amplifies the edge, tightening grain perception without making the stroke obvious.
+4. **Worley nucleus burst.** `pulse` mode mirrors Worley's (1996) observation that natural cellular patterns (cracked mud, basalt columns, foam) form by a sharp nucleus event followed by slow relaxation. The asymmetric `t<0.2 ? t/0.2 : (1-(t-0.2)/0.8)^2.5` envelope reproduces that timing.
+5. **Wolfram-style discretisation.** `march` ramps `cellSize` through 4 discrete holds, echoing Wolfram (NKS, Ch. 5): the same CA at different cell scales is a different texture. The four holds let the eye compare them in a 15s loop.
+
+### References
+
+- Worley, S. (1996). *A cellular texture basis function*. SIGGRAPH '96 — defines the cellular distance function and the nucleus-burst timing the `pulse` envelope mirrors.
+- Quilez, I. *Voronoi/Worley distances*. https://iquilezles.org/articles/voronoilines/ — the seam-aware Voronoi distance trick we used to reason about chirality bias without breaking the rulebands.
+- Conway, J. H. (via Gardner, M., 1970). *The Game of Life*. Scientific American 223 — the original Moore-3×3 totalistic CA; chirality keeps Survive/Birth bands intact while skewing the neighbourhood weight.
+- Wolfram, S. (2002). *A New Kind of Science*, Ch. 5 — discrete texture as substrate; informs `march` mode's stepped quantisation.
+- Reynolds, C. W. (1987). *Flocks, herds, and schools: A distributed behavioral model*. SIGGRAPH '87 — the cohesion / 1-over-r rule the magnetic interactive cursor implements.
+- Wertheimer, M. (1912). *Experimentelle Studien über das Sehen von Bewegung*. — phi-phenomenon; the perceptual basis for `drift` reading as motion despite stationary rules.
+- Mach, E. (1865). *Über die Wirkung der räumlichen Vertheilung des Lichtreizes auf die Netzhaut*. — Mach-band sharpening; the perceptual basis for `gapTone`.
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/cellular/)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| idle    | ✓ | 1 (intentional) | 7.6 |
+| breath  | ✓ | 3 (symmetric pingpong → t=0.25 ≡ t=0.75) | 9.5 |
+| drift   | ✓ | 4 | 7.6 |
+| pulse   | ✓ | 3 (asymmetric — t=0.5,0.75 both in decay tail) | 5.3 |
+| march   | ✓ | 3 (4 holds, seam = hold 0 ≡ one other quarter) | 5.2 |
+
+Screenshots in `docs/screenshots/cellular-<mode>.png`.
+
+### Notes for the next maintainer
+
+- The mode select is non-routing (changing `mode` doesn't trigger a static rebuild) because the envelope is the only consumer.
+- `chirality` is in `BUILD_KEYS` because it affects the CA step, not the paint.
+- `gapTone` is in `PAINT_KEYS` because the alive grid is unchanged — only the overlay stroke changes.
+- The magnetic interactive cursor warps the *seed sample* coords, not the CA grid post-evolution. This way the rule semantics never change; the visible bend is the deterministic consequence of a shifted seed pattern flowing through the existing rule bands.
+- `pulse` and `march` both temporarily mutate `params.cellSize`. They snapshot/restore via `restCell` so the GUI slider doesn't oscillate during the animation.

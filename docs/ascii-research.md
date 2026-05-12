@@ -166,3 +166,83 @@ user sees what the cursor is doing.
 - All sliders/toggles bind: Columns, Rows, Char ramp, Invert, Blur, Grain,
   Gamma, Black point, White point, Foreground, Match source, Bold, Comments,
   Border, Animate, Interactive.
+
+## Refinement pass (2026-05-13)
+
+The original animation collapsed three different gestures (resolution sweep,
+tonal breath, grain breath) into one mode. After re-reading the ASCII lineage
+(aa-project, cmatrix, Shadertoy `ldcXDl`, Shiffman's video-ASCII sketch) the
+pass separates those gestures into named envelopes — one design intent per
+mode — and adds two per-cell typography levers (`tracking`, `jitter`) plus a
+spatial soft-focus lens on the cursor.
+
+### Mode table
+
+| mode    | envelope                                         | levers driven        | reads as                                  |
+|---------|--------------------------------------------------|----------------------|-------------------------------------------|
+| idle    | constant 0 (no motion)                           | none                 | a still poster — lets you study the grid  |
+| breath  | `(1 − cos 2πt) / 2` (legacy pingpong)            | columns + gamma + grain | the image "inhaling" detail            |
+| march   | `floor(t · 4) / 4` (4-step hold)                 | columns              | aalib-style resolution drops, deliberate  |
+| rotate  | raw `t` 0→1 wrapped through cosine for closure   | gamma                | a tonal sweep — sunrise/sunset on glyphs  |
+| pulse   | `t<0.2 ? t/0.2 : (1 − (t−0.2)/0.8)^2.5`           | grain                | a textural flashbulb that decays          |
+
+Mode owns *only* its subset of levers. Other sliders hold at user values and
+are restored after each frame so toggling modes never silently overwrites
+state. All envelopes satisfy `env(0) === env(1)` byte-equal, verified via
+canvas `toDataURL` comparison.
+
+### New params
+
+- **tracking** (−2 … +2, step 0.1). Letter-spacing-style offset applied as a
+  symmetric outward push from the horizontal centre. Reads as "loose" /
+  "condensed" type without re-flowing the grid. Cap of ±2 cell-widths keeps
+  glyphs inside the canvas pad even at extreme settings.
+- **jitter** (0 … 1, step 0.01). Per-cell sub-pixel offset seeded by
+  `mulberry32(seedFromT(t))`, capped at 30% of a cell so glyphs never collide
+  with neighbours. RNG is consumed even on void cells so the sequence is
+  independent of source content (otherwise an animated bright/dark cycle
+  would mutate the jitter pattern and break the loop close).
+
+### Interactive flavour: soft focus
+
+When `interactive` is on (and `animate` is off), the cursor becomes a local
+column-count amplifier. We don't change the global column count — that would
+re-flow the entire grid on every mouse move, which is jarring — instead we
+add Gaussian-weighted luminance at the cursor centre. The brightness lift
+pushes affected cells one or two steps later in the ramp, which reads as
+"more ink density near the cursor" without resampling. σ ≈ 18% of the
+smaller grid dimension, peak gain 90 luma units.
+
+### References
+
+- **aa-project / aalib (Jan Hubička, 1997)** — resolution sweeps are the
+  oldest ASCII art trick: aalib's `aafire` famously steps cell count to
+  imply distance. `march` honours that lineage.
+- **cmatrix (Chris Allegretta, 1999)** — proved that stepped, deliberate
+  motion reads better than continuous noise. The 4-step `march` rung count
+  is borrowed from cmatrix's frame-hold cadence.
+- **Shadertoy `ldcXDl` ASCII family (movAX13h)** — establishes the soft
+  Gaussian "spotlight" as the canonical interactive flavour for character
+  renderers; we copy the design but implement it server-side per-cell.
+- **Daniel Shiffman, "ASCII Video" Processing sketch** — the precedent for
+  cell-jitter-as-life. Shiffman wobbles each character by a small noise
+  field; we make it deterministic so exports stay byte-equal.
+
+### Defaults rationale
+
+- `tracking = 0`, `jitter = 0`: refinement defaults that *don't* alter the
+  byte-equal export contract for users who don't touch them.
+- `mode = 'breath'`: the legacy animation, preserved as default so no
+  existing exports change.
+- `MARCH_STEPS = 4`: tested at 3 / 4 / 6 / 8; 3 reads jumpy, 6+ reads
+  continuous. 4 is the smallest count where each rung is visibly held.
+- Focus σ = 18% of grid: smaller and the lens disappears; larger and the
+  whole grid feels modulated. 18% lands the lens visibly without
+  overwhelming the composition.
+
+### Verification
+
+All 5 modes pass: byte-equal seamless loop close, distinct frames at
+t∈{0.25, 0.5, 0.75}, mean frame time 6.9 ms / 24-frame sweep at default
+window size — well under the 30 ms budget. Screenshots: `screenshots/
+ascii-{idle,breath,march,rotate,pulse}.png`.

@@ -2,10 +2,458 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>pixart</title>
-<meta http-equiv="refresh" content="0; url=ascii/">
-<link rel="canonical" href="https://toys.iamkesava.com/pixart/ascii/">
-<script>location.replace('ascii/');</script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pixart — 28 image effects</title>
+<meta name="description" content="A wall of 28 client-side image effects: ASCII, halftone, dither, ink-wash, kaleidoscope, slit-scan, flow-field, and more. Drop in an image, pick an effect, play.">
+<link rel="canonical" href="https://toys.iamkesava.com/pixart/">
+<link rel="stylesheet" href="shared/chrome.css">
+<link rel="stylesheet" href="shared/theme-tokens.css">
+<script src="shared/theme.js"></script>
+<style>
+  /* Homepage — built on the kami chrome variables.
+     Card layout, filter chips, search, hover state. */
+  html, body { overflow:auto; height:auto; min-height:100dvh; background:var(--bg); color:var(--text); }
+  body.pixart-home { padding-top:44px; padding-bottom:80px; }
+
+  .home-wrap{
+    max-width:1280px;
+    margin:0 auto;
+    padding:36px 24px 24px;
+  }
+  .home-lede{
+    display:flex; align-items:flex-end; justify-content:space-between; gap:24px;
+    margin-bottom:28px; flex-wrap:wrap;
+  }
+  .home-title{
+    font-family:var(--kami-font-display);
+    font-size:clamp(34px, 5vw, 52px);
+    line-height:1; letter-spacing:-.02em;
+    font-weight:500;
+    margin:0 0 6px;
+  }
+  .home-sub{
+    font-family:var(--kami-font-mono);
+    font-size:12px; opacity:.6; margin:0;
+    letter-spacing:.02em;
+  }
+  .home-count{
+    font-family:var(--kami-font-mono);
+    font-size:11px; opacity:.55;
+    white-space:nowrap;
+    padding-bottom:4px;
+  }
+
+  .home-controls{
+    display:flex; gap:12px; align-items:center;
+    margin-bottom:18px; flex-wrap:wrap;
+  }
+  .home-search{
+    flex:1 1 280px;
+    min-width:220px;
+    display:flex; align-items:center; gap:8px;
+    border:1px solid var(--bar-border);
+    border-radius:8px;
+    padding:0 12px; height:38px;
+    background:rgba(255,255,255,.55);
+    transition:border-color .15s, background .15s;
+  }
+  .home-search:focus-within{
+    border-color:var(--text);
+    background:rgba(255,255,255,.9);
+  }
+  .home-search-icon{
+    font-family:var(--kami-font-mono);
+    font-size:13px; opacity:.5;
+  }
+  .home-search input{
+    flex:1; height:100%;
+    background:transparent; border:0; outline:0;
+    font-family:var(--kami-font-body);
+    font-size:14px; color:var(--text);
+    letter-spacing:.01em;
+  }
+  .home-search input::placeholder{ opacity:.4; }
+  .home-search-clear{
+    background:transparent; border:0; cursor:pointer;
+    color:var(--text); opacity:.45;
+    font-family:var(--kami-font-mono); font-size:13px;
+    padding:0 4px;
+    display:none;
+  }
+  .home-search-clear.visible{ display:inline-block; }
+  .home-search-clear:hover{ opacity:1; }
+  .home-search kbd{
+    font-family:var(--kami-font-mono);
+    font-size:10px;
+    padding:2px 5px;
+    border:1px solid var(--bar-border);
+    border-radius:3px;
+    opacity:.55;
+    background:transparent;
+  }
+
+  .home-chips{
+    display:flex; gap:6px; flex-wrap:wrap;
+  }
+  .home-chip{
+    font-family:var(--kami-font-mono);
+    font-size:11px;
+    letter-spacing:.02em;
+    padding:6px 12px;
+    border:1px solid var(--bar-border);
+    border-radius:999px;
+    background:transparent;
+    color:var(--text); opacity:.6;
+    cursor:pointer;
+    transition:opacity .15s, border-color .15s, background .15s;
+  }
+  .home-chip:hover{ opacity:1; }
+  .home-chip.active{
+    opacity:1;
+    background:var(--text);
+    color:var(--bg);
+    border-color:var(--text);
+  }
+  .home-chip-count{
+    opacity:.55; margin-left:6px; font-size:10px;
+  }
+  .home-chip.active .home-chip-count{ opacity:.75; color:var(--bg); }
+
+  /* Card grid */
+  .home-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));
+    gap:18px;
+    margin-top:22px;
+  }
+  @media (max-width:640px){
+    .home-grid{ grid-template-columns:repeat(2, 1fr); gap:10px; }
+    .home-wrap{ padding:24px 12px 16px; }
+  }
+
+  .pix-card{
+    position:relative;
+    display:flex; flex-direction:column;
+    text-decoration:none; color:inherit;
+    border:1px solid var(--bar-border);
+    border-radius:10px;
+    overflow:hidden;
+    background:var(--bg);
+    transition:border-color .2s ease, box-shadow .2s ease;
+    opacity:0;
+    transform:translateY(8px);
+    animation:pix-fadein .42s cubic-bezier(.22,1,.36,1) forwards;
+    animation-delay:var(--pix-delay, 0ms);
+  }
+  @keyframes pix-fadein{
+    to { opacity:1; transform:translateY(0); }
+  }
+  .pix-card:hover{
+    border-color:var(--text);
+    box-shadow:0 1px 0 var(--text);
+  }
+  .pix-card:focus-visible{
+    outline:2px solid var(--text);
+    outline-offset:2px;
+  }
+  .pix-card-canvas{
+    position:relative;
+    aspect-ratio: 280 / 180;
+    overflow:hidden;
+    background:#0a0a0a;
+  }
+  .pix-card-canvas img{
+    display:block;
+    width:100%; height:100%;
+    object-fit:cover;
+    filter:brightness(.94) saturate(.96);
+    transition:filter .3s ease, transform 8s ease;
+  }
+  .pix-card:hover .pix-card-canvas img{
+    filter:brightness(1.02) saturate(1.05);
+    transform:scale(1.015);
+  }
+  .pix-card-meta{
+    display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+    padding:10px 12px 12px;
+  }
+  .pix-card-name{
+    font-family:var(--kami-font-display);
+    font-size:15px; font-weight:500;
+    letter-spacing:-.005em;
+    color:var(--text);
+    text-decoration:none;
+  }
+  .pix-card:hover .pix-card-name{
+    text-decoration:underline;
+    text-underline-offset:3px;
+    text-decoration-thickness:1px;
+  }
+  .pix-card-badge{
+    font-family:var(--kami-font-mono);
+    font-size:9.5px;
+    letter-spacing:.08em;
+    text-transform:lowercase;
+    opacity:.55;
+    padding:2px 7px;
+    border:1px solid var(--bar-border);
+    border-radius:999px;
+  }
+
+  /* Empty state */
+  .home-empty{
+    display:none;
+    text-align:center;
+    padding:60px 24px;
+    font-family:var(--kami-font-mono);
+    font-size:13px;
+    opacity:.6;
+  }
+  .home-empty.visible{ display:block; }
+  .home-empty button{
+    display:inline-block; margin-top:14px;
+    font-family:var(--kami-font-mono); font-size:11px;
+    padding:6px 14px;
+    background:transparent; color:var(--text);
+    border:1px solid var(--bar-border); border-radius:999px;
+    cursor:pointer;
+  }
+  .home-empty button:hover{ border-color:var(--text); }
+
+  /* Footer */
+  .home-footer{
+    max-width:1280px; margin:48px auto 0;
+    padding:24px;
+    border-top:1px solid var(--bar-border);
+    display:flex; justify-content:space-between; gap:16px;
+    font-family:var(--kami-font-mono); font-size:11px;
+    opacity:.7; flex-wrap:wrap;
+  }
+  .home-footer a{ color:inherit; }
+  .home-footer .sep{ opacity:.4; margin:0 .35rem; }
+  .home-footer kbd{
+    font-family:var(--kami-font-mono); font-size:10px;
+    padding:1px 5px; border:1px solid var(--bar-border); border-radius:3px;
+  }
+</style>
 </head>
-<body><a href="ascii/">enter pixart</a></body>
+<body class="pixart-home">
+
+<header class="wa-top">
+  <div class="theme-switcher-container">
+    <button class="theme-switcher-pill" aria-label="Cycle theme" title="Cycle theme">
+      <span class="theme-switcher-pill-icon">●</span>
+    </button>
+  </div>
+  <nav class="kami-breadcrumb">
+    <a href="https://iamkesava.com">home</a><span class="sep">·</span>
+    <a href="https://toys.iamkesava.com">toys</a><span class="sep">·</span>
+    <span class="current">pixart</span>
+  </nav>
+  <div class="grow"></div>
+  <div class="wa-actions">
+    <a href="https://github.com/k3sava/pixart" style="font-family:var(--kami-font-body); font-size:12px; padding:4px 12px; border:1px solid var(--bar-border); border-radius:4px; color:var(--text); text-decoration:none; opacity:.75;">github</a>
+  </div>
+</header>
+
+<main class="home-wrap">
+  <div class="home-lede">
+    <div>
+      <h1 class="home-title">pixart</h1>
+      <p class="home-sub">28 client-side image effects. drop a picture, pick a treatment, play.</p>
+    </div>
+    <div class="home-count" id="home-count">28 of 28</div>
+  </div>
+
+  <div class="home-controls">
+    <label class="home-search" id="home-search-wrap">
+      <span class="home-search-icon">⌕</span>
+      <input id="home-search" type="search" autocomplete="off" placeholder="search effects…" aria-label="Search effects">
+      <button type="button" class="home-search-clear" id="home-search-clear" aria-label="Clear search">×</button>
+      <kbd>/</kbd>
+    </label>
+  </div>
+
+  <div class="home-chips" id="home-chips" role="tablist" aria-label="Filter by category"></div>
+
+  <div class="home-grid" id="home-grid" role="list"></div>
+
+  <div class="home-empty" id="home-empty">
+    nothing matches <span id="home-empty-q"></span>.
+    <br>
+    <button type="button" id="home-empty-clear">clear search</button>
+  </div>
+</main>
+
+<footer class="home-footer">
+  <div>
+    <a href="https://apps.iamkesava.com/">apps</a><span class="sep">·</span>
+    <a href="https://tools.iamkesava.com/">tools</a><span class="sep">·</span>
+    <span>toys</span><span class="sep">·</span>
+    <a href="https://codex.iamkesava.com/">codex</a>
+  </div>
+  <div>
+    made by <a href="https://iamkesava.com">kesava</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/k3sava/pixart">github</a>
+    <span class="sep">·</span>
+    keys: <kbd>/</kbd> search · <kbd>T</kbd> theme
+  </div>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  // 28 effects with category. Source of truth shared with shared/keys.js
+  // and scripts/sync-nav.py — keep aligned.
+  const EFFECTS = [
+    { slug:'ascii',          name:'ascii',          cat:'Type' },
+    { slug:'bevel',          name:'bevel',          cat:'Tonal' },
+    { slug:'cellular',       name:'cellular',       cat:'Generative' },
+    { slug:'contour',        name:'contour',        cat:'Tonal' },
+    { slug:'crt',            name:'crt',            cat:'Cinematic' },
+    { slug:'displace',       name:'displace',       cat:'Geometric' },
+    { slug:'distort',        name:'distort',        cat:'Geometric' },
+    { slug:'dithering',      name:'dithering',      cat:'Halftone' },
+    { slug:'dots',           name:'dots',           cat:'Halftone' },
+    { slug:'edge',           name:'edge',           cat:'Tonal' },
+    { slug:'film-grain',     name:'film grain',     cat:'Cinematic' },
+    { slug:'flow-field',     name:'flow field',     cat:'Generative' },
+    { slug:'gradients',      name:'gradients',      cat:'Tonal' },
+    { slug:'halftone-cmyk',  name:'halftone cmyk',  cat:'Halftone' },
+    { slug:'ink-wash',       name:'ink wash',       cat:'Painterly' },
+    { slug:'kaleidoscope',   name:'kaleidoscope',   cat:'Geometric' },
+    { slug:'patterns',       name:'patterns',       cat:'Generative' },
+    { slug:'pixel-sort',     name:'pixel sort',     cat:'Glitch' },
+    { slug:'recolor',        name:'recolor',        cat:'Tonal' },
+    { slug:'rgb-shift',      name:'rgb shift',      cat:'Cinematic' },
+    { slug:'scatter',        name:'scatter',        cat:'Glitch' },
+    { slug:'slide',          name:'slide',          cat:'Motion' },
+    { slug:'slit-scan',      name:'slit-scan',      cat:'Glitch' },
+    { slug:'stack',          name:'stack',          cat:'Motion' },
+    { slug:'stippling',      name:'stippling',      cat:'Halftone' },
+    { slug:'voronoi',        name:'voronoi',        cat:'Geometric' },
+    { slug:'watercolor',     name:'watercolor',     cat:'Painterly' },
+    { slug:'zoom-blur',      name:'zoom blur',      cat:'Cinematic' },
+  ];
+
+  const CATEGORY_ORDER = ['Type','Tonal','Halftone','Geometric','Cinematic','Painterly','Glitch','Generative','Motion'];
+
+  const state = { q:'', cat:'All' };
+
+  const $grid   = document.getElementById('home-grid');
+  const $chips  = document.getElementById('home-chips');
+  const $search = document.getElementById('home-search');
+  const $clear  = document.getElementById('home-search-clear');
+  const $count  = document.getElementById('home-count');
+  const $empty  = document.getElementById('home-empty');
+  const $emptyQ = document.getElementById('home-empty-q');
+  const $emptyClear = document.getElementById('home-empty-clear');
+
+  function buildCards(){
+    const frag = document.createDocumentFragment();
+    EFFECTS.forEach((e, i) => {
+      const a = document.createElement('a');
+      a.href = `${e.slug}/`;
+      a.className = 'pix-card';
+      a.dataset.slug = e.slug;
+      a.dataset.name = e.name;
+      a.dataset.cat  = e.cat;
+      a.style.setProperty('--pix-delay', `${Math.min(i * 22, 480)}ms`);
+      a.setAttribute('role', 'listitem');
+      a.innerHTML = `
+        <div class="pix-card-canvas">
+          <img src="assets/thumbs/${e.slug}.webp" alt="${e.name} preview" loading="lazy" decoding="async">
+        </div>
+        <div class="pix-card-meta">
+          <span class="pix-card-name">${e.name}</span>
+          <span class="pix-card-badge">${e.cat.toLowerCase()}</span>
+        </div>`;
+      frag.appendChild(a);
+    });
+    $grid.appendChild(frag);
+  }
+
+  function buildChips(){
+    const counts = { All: EFFECTS.length };
+    for(const c of CATEGORY_ORDER) counts[c] = EFFECTS.filter(e => e.cat === c).length;
+    const order = ['All', ...CATEGORY_ORDER];
+    $chips.innerHTML = order.map(c =>
+      `<button class="home-chip ${c === state.cat ? 'active' : ''}" data-cat="${c}" role="tab" aria-selected="${c === state.cat}">${c.toLowerCase()}<span class="home-chip-count">${counts[c]}</span></button>`
+    ).join('');
+    $chips.querySelectorAll('.home-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.cat = btn.dataset.cat;
+        $chips.querySelectorAll('.home-chip').forEach(b => {
+          const on = b.dataset.cat === state.cat;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on);
+        });
+        applyFilter();
+      });
+    });
+  }
+
+  function applyFilter(){
+    const q = state.q.trim().toLowerCase();
+    let visible = 0;
+    $grid.querySelectorAll('.pix-card').forEach(card => {
+      const matchQ = !q || card.dataset.name.toLowerCase().includes(q) || card.dataset.slug.includes(q);
+      const matchC = state.cat === 'All' || card.dataset.cat === state.cat;
+      const show = matchQ && matchC;
+      card.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+    $count.textContent = `${visible} of ${EFFECTS.length}`;
+    const isEmpty = visible === 0;
+    $empty.classList.toggle('visible', isEmpty);
+    if(isEmpty) $emptyQ.textContent = q ? `"${q}"` : `category "${state.cat.toLowerCase()}"`;
+    $clear.classList.toggle('visible', !!q);
+  }
+
+  $search.addEventListener('input', () => { state.q = $search.value; applyFilter(); });
+  $clear.addEventListener('click', () => { $search.value = ''; state.q = ''; applyFilter(); $search.focus(); });
+  $emptyClear.addEventListener('click', () => {
+    $search.value = ''; state.q = ''; state.cat = 'All';
+    $chips.querySelectorAll('.home-chip').forEach(b => {
+      const on = b.dataset.cat === 'All';
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on);
+    });
+    applyFilter(); $search.focus();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const tag = e.target.tagName;
+    const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if(e.key === '/' && !typing){
+      e.preventDefault();
+      $search.focus(); $search.select();
+      return;
+    }
+    if(e.key === 'Escape' && document.activeElement === $search){
+      $search.blur();
+      if(state.q){ $search.value = ''; state.q = ''; applyFilter(); }
+      return;
+    }
+    if(typing) return;
+    if(e.key === 'ArrowDown' || e.key === 'ArrowRight'){
+      const cards = [...$grid.querySelectorAll('.pix-card')].filter(c => c.style.display !== 'none');
+      const idx = cards.indexOf(document.activeElement);
+      const next = cards[Math.min(idx + 1, cards.length - 1)] || cards[0];
+      next?.focus(); e.preventDefault();
+    } else if(e.key === 'ArrowUp' || e.key === 'ArrowLeft'){
+      const cards = [...$grid.querySelectorAll('.pix-card')].filter(c => c.style.display !== 'none');
+      const idx = cards.indexOf(document.activeElement);
+      const prev = cards[Math.max(idx - 1, 0)] || cards[0];
+      prev?.focus(); e.preventDefault();
+    }
+  });
+
+  buildCards();
+  buildChips();
+  applyFilter();
+})();
+</script>
+</body>
 </html>

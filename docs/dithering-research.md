@@ -229,3 +229,91 @@ The `Random` pattern uses `_rng` (seeded mulberry32) only when `params.animate` 
 - **Palette presets** (Game Boy, Mac, NES). The reference exposes `colorCount` as a scalar instead — same idea, less surface area.
 
 These were called out as possibilities; skipping them keeps the port faithful to what tooooools ships.
+
+## Refinement pass — 2026-05-13
+
+Six-mode envelope: `idle` · `breath` · `march` · `pulse` · `rotate` · `swap`.
+Plus two new static params (`serpentine` toggle, `bias` -32..32) and an
+Atkinson algorithm added to the patternType select for `swap` to cycle to.
+
+### Modes
+
+- **idle** — static frame is the artwork. No animation.
+- **breath** — original `pixelSize` cosine pingpong, kept verbatim. Calm,
+  foveal-friendly.
+- **march** — Bayer matrix size steps 2 → 4 → 8 → 16, held for 1/4 of the
+  loop each. The quantisation grain visibly doubles each beat. Pattern is
+  pinned to `Bayer` for the duration so the matrix-size doubling is the
+  only knob the eye sees. Bayer's 1973 paper shows that as N grows the
+  ordered-matrix output converges to a halftone screen; sampling the steps
+  is a small piece of that convergence in time.
+- **pulse** — sharp asymmetric envelope on `lightnessThreshold`: 20% of the
+  loop is the drop (more detail blooms in), 80% is the slow decay back to
+  base. Mach-band glow: edges flash brighter than their interior because
+  the dither pattern abruptly densifies.
+- **rotate** — Bayer matrix angle 0 → 360° monotonically. The matrix
+  itself doesn't rotate; instead we rotate the *lookup coords* via
+  `(round(x·cos − y·sin) mod n, round(x·sin + y·cos) mod n)`. Diagonal
+  grain sweeps once per cycle. Byte-equal at the seam because cos/sin both
+  collapse to (1, 0) at t=0 and we explicitly route t=1 → t=0.
+- **swap** — algorithm rotation through F-S → Bayer → Random → Atkinson,
+  held for 1/4 of the loop each. Each algorithm has its own grain
+  signature: F-S's smooth diffusion, Bayer's structured cross-hatch,
+  Random's white noise, Atkinson's burnt-in highlights. The cuts are hard
+  by design — that's the point. Living typography of dither.
+
+### New static params
+
+- **serpentine** (bool, default on) — Yliluoma's alternating-row scan
+  direction for Floyd-Steinberg. Halves the diagonal artefacts of pure
+  L→R diffusion at zero performance cost. Toggle off to see the
+  signature 45° grain of the original 1976 paper.
+- **bias** (-32..32, default 0) — additive luminance pre-shift applied
+  before quantisation, clipped to [0..255]. Nudges the midtone pivot
+  without dragging the threshold slider. Atkinson's burnt-highlight bias
+  is structural (only 6/8 of error diffused), but on F-S you can simulate
+  the same dark-image lift with a +12..+24 bias.
+
+### Atkinson algorithm
+
+Bill Atkinson's MacPaint diffusion (Apple, 1984). Diffuses 6/8 = 75% of
+the quantisation error in this layout:
+
+```
+              X   1/8 1/8
+      1/8 1/8 1/8
+              1/8
+```
+
+The missing 25% of error is the *signature*: in dark regions the
+unaccounted error accumulates as un-distributed black ink that the
+quantiser eventually flushes, producing the "burnt-in highlights" look
+that's instantly recognisable as MacPaint output. Implemented strictly
+left-to-right (Atkinson's original loop didn't serpentine).
+
+### References
+
+1. **Floyd & Steinberg (1976)** — *An Adaptive Algorithm for Spatial
+   Greyscale*. The canonical 7/3/5/1 error-diffusion kernel. We honour
+   it exactly, with the serpentine toggle as an optional Yliluoma upgrade.
+2. **Bayer (1973)** — *An Optimum Method for Two-Level Rendition of
+   Continuous-Tone Pictures*. The recursive 2×2 → 4×4 → … construction.
+   We pre-build 2, 4, 8, 16 and march through them.
+3. **Atkinson / MacPaint (1984)** — the un-published-but-canonical Apple
+   diffusion. 6/8 distribution, no serpentine, burnt highlights.
+4. **Yliluoma (2011)** — *Arbitrary-palette positional dithering*.
+   Serpentine pass + per-pixel best-of-N palette tests. We adopt the
+   serpentine pass as a toggle.
+
+### Verification (browser, 2026-05-13)
+
+| mode    | seam | t=.25 distinct | t=.5 | t=.75 | mean ms/24f |
+|---------|------|----------------|------|-------|-------------|
+| idle    | ✓    | n/a            | n/a  | n/a   | 7.0         |
+| breath  | ✓    | ✓              | ✓    | ✓     | 3.2         |
+| march   | ✓    | ✓              | ✓    | ✓     | 7.3         |
+| pulse   | ✓    | ✓              | ✓    | ✓     | 8.3         |
+| rotate  | ✓    | ✓              | ✓    | ✓     | 8.3         |
+| swap    | ✓    | ✓              | ✓    | ✓     | 9.3         |
+
+All under the 30 ms budget. Screenshots at `docs/screenshots/dithering-<mode>.png`.

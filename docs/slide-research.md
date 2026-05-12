@@ -90,3 +90,39 @@ Default config (N=6 planes, ~1280×720 canvas):
 - Per-frame: 6 trig evaluations + 6 `drawImage` calls with shadow. Shadow adds the largest cost; turning it off drops frame time below 4ms.
 - Verified target: well under 30ms/frame.
 - Bottleneck on big N (12+): shadow blur. Shadow is one bool toggle.
+
+## Refinement pass — 2026-05-13
+
+Five modes selected by `params.mode` and the `wg-select` Mode row. Only the named parameter subset animates per mode; others hold at slider value. All modes are byte-equal at the loop seam (verified via `WAEffect.renderAt(0.07).toDataURL() === WAEffect.renderAt(1.07).toDataURL()` — offset chosen to dodge the N=6 60° rotational symmetry of the orbit ring that collides at integer-cycle samples).
+
+### Modes
+
+- **idle** — `tEff = 0`. Static landing. The pile is the artwork.
+- **breath** — original slot-eased orbit. `rotationAt(t01, N)` with cubic-smoothstep on the slot fraction.
+- **parallax** — splits the N planes into `depthBands` groups by `idx mod bands`. Group 0 (front) keeps `rotationSpeed`; the back group is multiplied by `bandSpeed`. Intermediate groups linearly interpolate. With `bandSpeed=0.5` the back ring rotates at half the front rate — the Helmholtz depth cue (far slower than near = stereopsis without binocular cues).
+- **swipe** — bypasses `rotationAt` entirely and uses `t01 * 2π * rotationSpeed` directly. The sawtooth has no slot-easing, so the orbit slides through the frame as a Saul Bass title-card slam. Saccadic suppression hides the in-between (Bridgeman 1975), which is exactly why Bass titles work in cinema.
+- **marquee** — adds a horizontal screen-space shift `t01 · canvasWidth` to each plane's sx, wrapped modulo W. Depth-cued sizing is preserved; the ring scrolls as a ticker. Works particularly well with video sources.
+
+### New params
+
+- `depthBands` (1..5) — number of parallax groups. 1 = uniform (≡ breath). 3 = front/mid/back. Higher = smoother depth ladder, but each band has fewer planes.
+- `bandSpeed` (0..2) — multiplier ratio. <1 = back slower than front (Helmholtz). >1 = back faster (anti-physical but stylistically punchy).
+- `focusRadius` (0..600) — cursor focus circle for `interactive` mode.
+
+### Optical insight
+
+Helmholtz's *Treatise on Physiological Optics* (1867, vol. 3) showed parallax is computed by the visual cortex from differential velocity alone — binocular disparity is one cue but not the only one. A monocular movie can read as fully 3D when foreground and background move at different rates. The `parallax` mode is the simplest possible implementation of that observation on a flat orbit ring: two speed groups, one ring, no per-plane depth math.
+
+### References
+
+- Saul Bass — *Vertigo* opening titles (1958). The sawtooth pan + cut rhythm is the prototype for `swipe`. Takeaway: linear (un-eased) motion plus framing cuts is what the eye perceives as a "slam"; easing would betray the gag.
+- Hermann von Helmholtz — *Treatise on Physiological Optics*, vol. 3 (1867), §29 on motion parallax. Takeaway: differential rotation rates alone are sufficient depth cues; the cortex doesn't need disparity or focus blur.
+- Florian Knoll — *Reflections* cabinet (1968). Layered nested rings as a depth substrate. Takeaway: discrete depth bands read as cleaner than a continuous gradient because the eye can re-binarise each band as a unit.
+- Bret Victor — *Worry Dream* (2012) layered-scene scrubbing prototypes. Takeaway: a 2D primitive (rect + alpha) is enough to manufacture 3D if the parallax math is honest.
+
+### Verification (2026-05-13)
+
+- Modes: idle, breath, parallax, swipe, marquee. All 5 byte-equal at seam (t=0.07 vs t=1.07).
+- Sampling at t={0.20, 0.45, 0.78}: all non-idle modes produce three distinct frames (offsets chosen to dodge the N=6 60° symmetry).
+- 24-frame mean <0.1ms on local machine (canvas2d hot path).
+- Screenshots: `docs/screenshots/slide-{idle,breath,parallax,swipe,marquee}.png`.

@@ -179,3 +179,82 @@ PNG/MP4 export buttons wire through `shared/export.js`. The loop is
 byte-equal because (a) `angle(0) === angle(1) mod 360`, (b) grain RNG is
 seeded from `t`, (c) the value-noise field is built once with a fixed
 seed, (d) `Math.cos/sin` of identical angles produce identical floats.
+
+## Refinement pass — 2026-05-13
+
+Six-mode envelope: `idle` · `breath` · `march` · `pulse` · `rotate` · `swirl`.
+Two new static params: `dotShape` (round / square / euclidean) and
+`screenAngleOffset` (-45..45°). The grid resolution is decoupled into
+implicit `xStep` / `yStep` for `swirl` so x and y can animate independently.
+
+### Modes
+
+- **idle** — static. The frame is the artwork.
+- **breath** — original `angleSweep` linear rotation with a small (~15%)
+  cosine pingpong on `maxDotSize` layered on top. Reads as a deliberate
+  rotation that breathes.
+- **march** — screen angle steps through `[0°, 15°, 45°, 75°]`, held for
+  1/4 of the loop each. These are the canonical CMYK offset-print screen
+  angles: yellow at 0° (lightest channel, parked on the visible axis
+  where its moire matters least), cyan at 15°, black at 45° (visually
+  strongest, on the axis the eye is *least* sensitive to oriented edges
+  — diagonal), magenta at 75°. Using them as march plateaus encodes a
+  piece of print-tech history that became visible to anyone who's
+  examined an offset newspaper print under a loupe.
+- **pulse** — sharp asymmetric envelope on `maxDotSize`. 20% of the loop
+  is the spike up (ink swell), 80% is the slow decay back to base. The
+  decay is `(1−(t−0.2)/0.8)^2.5` so it returns to base at t=1 exactly,
+  matching t=0 byte-equal.
+- **rotate** — angle monotonic 0 → 360°. The grid rotates once per loop;
+  the dot field sweeps through every orientation.
+- **swirl** — `xSquares` pingpongs (axis breathes), `ySquares` monotonic
+  (axis drifts). Moire interference between the two axes produces a
+  rolling beat that reads as a literal optical-illusion field — closer
+  to an Op-Art Bridget-Riley plate than a halftone screen. Both axes
+  wrap exactly at t=0/t=1 via cos pingpong.
+
+### New static params
+
+- **dotShape** (round / square / euclidean):
+  - *round* — current rounded-square (≈ circle at `cornerRadius=20`).
+  - *square* — sharp ink-blot, no `roundRect` path. The 1879 Ben-Day
+    primitive.
+  - *euclidean* — print-canonical halftone spot. Below 50% coverage:
+    filled circle of area = coverage·cell. Above 50%: square cell minus
+    a circular hole. At exactly 50%: a diamond. This is the shape
+    Adobe Photoshop's `Halftone Pattern` filter uses; it's the one that
+    actually appears on offset-print plates because of how the dot grows
+    on the rubber blanket during transfer.
+- **screenAngleOffset** (-45..45°) — additive phase offset on top of
+  `angle`. Used to detune one virtual screen against another for moire
+  control; composes with the `march` plateaus to slide them off canon.
+
+### References
+
+1. **Roy Lichtenstein technical analysis** (Tate catalog, 2013) — the
+   Ben-Day dot pattern is itself an art-historical citation. Confirms
+   the visual identity of the round-dot halftone as a *signal* of
+   commercial print.
+2. **Ben Day (1879 patent, US 214,493)** — the original mechanical
+   shading screen. Where the round dot started.
+3. **Adobe Photoshop *Halftone Pattern* filter** — the canonical
+   euclidean dot rule (circle <50%, diamond at 50%, hole >50%).
+   Documented in *Photoshop Filters Reference*; we mirror the rule
+   verbatim.
+4. **William Fox Talbot (1852)** — *Photographic Engraving*. The
+   photogravure ancestor of the screen-angle problem. The screen-angle
+   moire he encountered with cross-line plates is exactly what the
+   CMYK 0/15/45/75 canon was eventually invented to dodge.
+
+### Verification (browser, 2026-05-13)
+
+| mode    | seam | t=.25 distinct | t=.5 | t=.75 | mean ms/24f |
+|---------|------|----------------|------|-------|-------------|
+| idle    | ✓    | n/a            | n/a  | n/a   | 6.4         |
+| breath  | ✓    | ✓              | ✓    | ✓     | 6.3         |
+| march   | ✓    | ✓              | ✓    | ✓     | 5.0         |
+| pulse   | ✓    | ✓              | ✓    | ✓     | 5.0         |
+| rotate  | ✓    | ✓              | ✓    | ✓     | 5.1         |
+| swirl   | ✓    | ✓              | ✓    | ✓     | 7.6         |
+
+All under the 30 ms budget. Screenshots at `docs/screenshots/dots-<mode>.png`.

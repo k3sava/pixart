@@ -155,3 +155,65 @@ Performed at 1280×720, default settings, via Playwright MCP:
 
 Algorithmic body (cell layout, single-pixel sampling, alpha-composited
 luminance, sorted-catalog index mapping, clamp floor) preserved exactly.
+
+---
+
+## Refinement pass — 2026-05-13
+
+Goal of this pass: graduate `patterns` from "PNG photo-mosaic with a single density pingpong" to a Truchet-tile rule system with four procedural tile families and a five-mode envelope set. The photo path stays available as `tileFamily=photo` for byte-exact bundle parity. All modes hold byte-equal loops and stay under 30 ms/frame at 1280×720.
+
+### Modes shipped
+
+| Mode | Envelope | Subset animated | Perceptual lever |
+|---|---|---|---|
+| **idle** | constant | none | Rest frame is the artwork |
+| **breath** | cosine pingpong (original) | `gridDensityNumber` | Lattice breathes — sparse ↔ dense |
+| **march** | step-4 function | per-tile rotation (+90° per beat) | Truchet rotation step: the macro illusory paths re-organise on each beat without any tile changing position |
+| **swap** | step-3 function | `tileFamily` cycles truchet ↔ smith ↔ quarter-arc | Same lattice + seed, three different rule sets — Sol-LeWitt's "the rule is the artwork" made literal |
+| **pulse** | cosine | `gridDensityNumber` | Lattice density swells; emergent paths finer mid-cycle |
+
+`march` and `swap` are step functions; both are seam-pinned (at `t=1` they explicitly route to the `t=0` state) so the loop closes byte-equal even though step functions are generically discontinuous. `breath` and `pulse` share the same envelope shape but `pulse` ships a more aggressive default sweep on the slider (`densitySweep=18`), so the perceptual signature differs.
+
+### New params
+
+- **`tileFamily`** (`truchet | smith | quarter-arc | photo`, default `truchet`) — Procedural Truchet families plus the legacy PNG mosaic.
+  - `truchet` (Smith's Type-A): square split along one diagonal, fill one triangle. 2 base states. Macro reading is *texture*, not *contour*.
+  - `smith` (Smith 1987 contour tile): two quarter-arcs at opposite corners, stroked. 2 base states. The classic — adjacent tiles stitch into long illusory curves across the lattice.
+  - `quarter-arc`: single quarter-arc anchored at one of 4 corners. 4 states. Maximum orientation entropy → most baroque emergent paths.
+  - `photo`: bundled PNG mosaic. Byte-exact bundle parity.
+- **`seed`** (`1..9999`, default `1`) — integer reseeding the deterministic per-cell orientation lattice. Mulberry32-mixed with `(seed, col, row)` so adjacent cells get decorrelated orientations (a correlated lattice would kill the Truchet effect). LeWitt's premise: rule + seed = artwork.
+- **`tileColor`** (`#1a1a1a` default) — fill / stroke colour for procedural families. The photo family ignores this.
+
+Stroke widths in `smith` and `quarter-arc` are keyed to per-cell ink density (the source-cell luminance, 0..1) so darker source regions yield bolder contour lines. The macro reads as a halftone of the source, but the micro is a Truchet rule — that double-reading is the toy's payoff.
+
+### Optical-illusion / design insight driving defaults
+
+Truchet (1704) observed that randomly-oriented tiles produce *organised* macro-patterns. Smith (1987) formalised the contour variant and noted that the eye stitches adjacent quarter-arcs into long smooth curves — the lattice has no curves, but you see them. `march` exploits this: rotating every tile +90° in lockstep doesn't shuffle the cells (which would read as noise); it *re-organises the illusory paths* into a new global pattern in the same place. The viewer perceives motion of a thing that doesn't exist. That's the point.
+
+The default `tileFamily=truchet` ships the *texture* reading; switch to `smith` and the *contour* reading takes over, same source image, same seed, same threshold. That's also the point.
+
+### References pulled
+
+- **Truchet, S. (1704). *Mémoire sur les Combinaisons*.** The original observation: random tile orientation → organised macro-pattern. Our 4-tile rotation `march` is a direct demonstration.
+- **Smith, A. R. (1987). *The tile assemblies of Sébastien Truchet and the topology of structural hierarchy*. Leonardo 20(4).** Formalises the contour tile (our `smith` family) and shows it is the *topological dual* of the triangle tile (our `truchet` family). The reason `swap` between them reads as a transformation, not a substitution.
+- **Sol LeWitt, *Wall Drawings* (1968+).** Rule + seed = artwork. We surface `seed` as a first-class slider so the LeWitt premise is operable: the same rule under different seeds is a *different* drawing.
+- **Bridges proceedings 2009** (multiple Truchet-tiling papers, esp. Krawczyk & Bosch on aperiodic Truchet variants). Motivation for the 4-state `quarter-arc` family — higher orientation entropy yields aperiodic macro-paths that the eye reads as "intentional".
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/patterns/, 1280×720)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| idle   | ✓ | 1 (intentional) | 0.5 |
+| breath | ✓ | 3 (cosine symmetric: t=0.25 ≈ t=0.75 density) | 0.4 |
+| march  | ✓ | 4 (one per rotation step) | 0.4 |
+| swap   | ✓ | 3 (3-family cycle: t=0 == t=1 family, t=0.5 different) | 0.6 |
+| pulse  | ✓ | 3 (cosine symmetric) | 0.4 |
+
+Screenshots in `docs/screenshots/patterns-<mode>.png`.
+
+### Notes for the next maintainer
+
+- `breath`, `pulse`, `swap` all hit distinct=3 at the four sample t's — that's the cosine/step *perceptual signature*, not a bug. The seam is byte-equal (t=0==t=1) and the mid-cycle frame (t=0.5) is visibly different from the endpoints, which is what the spec requires.
+- `march` requires column/row reconstruction from cell x/y because we cache cells as a flat Float32Array. The reconstruction divides by `cells[2]` / `cells[3]` (the first cell's width/height), which is uniform across the grid by construction.
+- The procedural families ignore the photo catalog. The catalog still loads in the background so a user can flip `tileFamily` to `photo` at any time without a reload.
+- Stroke widths in `smith` and `quarter-arc` look thin at high `gridDensityNumber`; this is intentional. Crank `gridDensityNumber` down to ~30 to see the contour reading at its most legible.

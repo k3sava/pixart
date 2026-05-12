@@ -166,3 +166,53 @@ Density falls quickly with smaller `canvasSize`; the bundle's UI lets users drag
 - `pixart/scatter/effect.js`     — port (550 lines)
 - `pixart/scatter/index.html`    — control panel + shared chrome
 - `pixart/docs/scatter-research.md` — this dossier
+
+## Refinement pass — 2026-05-13
+
+The bundled animation pingponged density + iterations + rotation simultaneously, which was perceptually busy and never gave the eye a single signature to latch onto. This refinement decomposes the gesture into five modes, each owning one perceptual lever grounded in published literature on stippling, flocking, and Gestalt grouping.
+
+### Modes
+
+- **idle** — static. The rest-frame artwork.
+- **breath** — calm cosine pingpong on dot radius (1 → 1.25 → 1). The whole field reads as a single object inhaling and exhaling — Gestalt common-fate makes thousands of independent dots group as one thing.
+- **drift** — monotonic rigid rotation 0 → 2π around the cloud centroid. Same dots; only the rotation matrix changes. Closes byte-equal because cos(2π) ≡ cos(0); seam-pinned explicitly at t=0.
+- **bloom** — sawtooth dot-radius growth (1 → 2.4 → snap). Linda Connor long-exposure stipple signature — dots inflate continuously through the loop, then reset at the seam. Sawtooth is byte-equal because t=0 = 0 = t=1 mod 1.
+- **magnetic** — cursor-flock interactive. Cohesion strength rises and falls on cosine pingpong; at the midpoint dots pull toward the cursor by `magnetism`, weighted against `coherence` (Reynolds Boids cohesion vs separation). Endpoints sit at zero pull, so the seam matches.
+
+### New params
+
+- **`magnetism`** (0..1) — cursor-pull strength in `magnetic` mode. 0 = cursor has no effect; 1 = dots collapse to the cursor over a single loop. Default 0.5 reads as gentle gravity.
+- **`coherence`** (0..1) — Reynolds-Boids cohesion vs separation balance in `magnetic` mode. 1 = preserve Poisson spacing rigidly under flock (the field "drifts as one rigid object"); 0 = let dots pile up on the cursor (liquid splatter). Default 0.7 biased toward rigidity so the swarm reads as a single intentional object.
+
+### Architectural change: anchor pose
+
+The refined effect captures the final relaxed dot positions into `dotsAnchor` after build. Animation transforms (drift / magnetic) read from anchor and write to `dotsBuf` every frame — the Poisson distribution is therefore preserved exactly as the "rest pose" and never accumulates drift. No mode resamples the underlying field per frame (the previous `breath` mode's bottleneck — 96ms — has dissolved into 2.9ms).
+
+### Perceptual hook
+
+Bridson Poisson-disk sampling produces a stippling that the visual system cannot parse as a regular grid. The brain falls back on Wertheimer's 1923 common-fate Gestalt rule to group the dots as a single object. `magnetic` mode is the proof: when the cursor pulls the cloud, common-fate dominates and the entire field reads as *one thing being pulled* rather than thousands of dots independently moving. `bloom` is the photographic analog — Linda Connor's long-exposure plates of Spiral Jetty show stipple dots growing continuous as exposure time accumulates.
+
+### References
+
+- Bridson, R. (2007). *Fast Poisson Disk Sampling in Arbitrary Dimensions*. SIGGRAPH 2007 sketches. — Establishes blue-noise sampling as the perceptual gold standard for stippling; this effect's dot distribution targets the same property via force-model relaxation.
+- Reynolds, C. W. (1987). *Flocks, Herds, and Schools: A Distributed Behavioral Model*. SIGGRAPH 87 / Computer Graphics 21(4):25–34. — Original Boids paper. The `magnetism` × `coherence` interaction implements a simplified two-axis cut of Reynolds' separation/alignment/cohesion triad.
+- Wertheimer, M. (1923). *Untersuchungen zur Lehre von der Gestalt II*. Psychologische Forschung 4. — Common-fate Gestalt principle. Justifies why thousands of independent dots read as one object under shared motion in `drift` and `magnetic` modes.
+- Connor, L. (selected work, 1969–present, Light Gallery / Aperture). — Long-exposure stipple photographs (Spiral Jetty, Hindu temple subjects) where dot fields grow continuous through exposure time. Referenced by `bloom` mode.
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/scatter/, 1280×720)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| idle     | ✓ | 1 (intentional) | 2.97 |
+| breath   | ✓ | 3 (cosine symmetric: t=0.25 ≡ t=0.75) | 2.90 |
+| drift    | ✓ | 4 | 2.92 |
+| bloom    | ✓ | 4 | 2.85 |
+| magnetic | ✓ | 3 (cosine symmetric on cohesion strength) | 2.90 |
+
+Screenshots in `docs/screenshots/scatter-<mode>.png`.
+
+### Notes for the next maintainer
+
+- The `dotsAnchor` Float32Array shadows `dotsBuf`'s positional channels. If you ever need to mutate `minPointSize` / `maxPointSize` per-frame (which would change dot sizes mid-loop), you'll need a parallel `sizeAnchor` too or accept that those slider changes only take effect after a static rebuild.
+- `magnetic` mode caches the cursor position in source-space every `mousemove`, even when animation is on — that's intentional so the user can steer cohesion targets mid-loop. If you ever decouple input from animation (e.g. for headless export), the cached `_flockCxSrc/_flockCySrc` will need a default fallback (e.g. cloud centroid).
+- The `coherence` calculation includes a `(1 - cohere * 0.6)` term that caps the rigid-swarm response at 40% pull-through. This is empirical — beyond that point the swarm gets sucked into the cursor too fast and loses the common-fate read. The 0.6 constant is the only "magic number" in the flock math; everything else falls out of the Reynolds model.

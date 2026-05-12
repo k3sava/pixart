@@ -130,6 +130,26 @@ const params = {
   showShadow:    true,    // drop-shadow under each card for depth read
   tintCards:     false,   // subtle per-card multiply tint (single-source variety)
   showEffect:    true,    // false = preview raw source (matches reference bypass)
+  // ---- Refinement pass (2026-05-13) ----
+  // mode picks the motion envelope. Each animates ONLY a named subset.
+  //   idle      — static. Landing pile.
+  //   breath    — current deal (visibleCount ramp + ease curve).
+  //   cascade   — Muybridge step-frames: visibleCount holds discrete plateaus,
+  //               evoking chronophotography's "arrested motion" illusion.
+  //   splay     — rotation fan: rotationRange pingpongs 0→max→0, the cards
+  //               splay open like a dealer's flourish.
+  //   breath-3d — oblique Y-shear on each card via ctx.transform(); cosine
+  //               loop, byte-equal at the seam.
+  mode:          'breath',
+  // shearAxis: direction of the z-shear envelope in `breath-3d`. Degrees;
+  // rotates the shear vector around the canvas plane.
+  shearAxis:     45,
+  // frameCount: hard cap on `cascade` visible-count steps. Natural max is
+  // N·stackCycles; capping creates the Muybridge "12-plate" feel. 1..40.
+  frameCount:    12,
+  // Cursor focus radius — peripheral motion is more visible than foveal
+  // (Carrasco 2011). Pointer biases rotation toward its angle. 0 = off.
+  focusRadius:   220,
   // Shared chrome.
   animate:       true,    // landing frame shows a deal-in-progress
   interactive:   false,
@@ -232,6 +252,30 @@ function rebuildTexture(){
   texDirty = false;
 }
 
+// Transient per-mode runtime — applyAnimationT writes; paint() reads.
+// Same pattern as edge/: avoids passing 5 args through paint() each frame.
+let _modeRuntime = { kind: 'breath', visOverride: -1, splayMul: 1, shear: 0 };
+
+// pingpong cosine on [0,1] with seam-collapse — peak at t=0.5, returns to 0
+// at t=0 and t=1. IEEE-754 trick: pin w=1 → 0 first.
+function pingpong(t01){
+  let w = t01 - Math.floor(t01);
+  if(w === 1) w = 0;
+  return (1 - Math.cos(w * 2 * Math.PI)) / 2;
+}
+
+// Stepped-and-held ramp for `cascade` mode (Muybridge plates). Splits the
+// loop into `steps` equal plateaus; the value within a plateau is the
+// step's floor — so a frame "holds" before snapping to the next. Seam-
+// override at t=1 to force exact return to t=0 (the step floor at w=1
+// would be `steps` not `0`).
+function stepHeld(t01, steps){
+  let w = t01 - Math.floor(t01);
+  if(w === 1) w = 0;
+  const s = Math.max(1, steps | 0);
+  return Math.floor(w * s) / s;
+}
+
 // ---------- visible count (bundle parity) ----------
 //
 // Matches the bundle's `visibleCount` calc exactly. We accept t01 directly
@@ -273,7 +317,23 @@ function paint(){
   }
 
   const N = Math.max(1, params.numCards | 0);
-  const vis = visibleCountAt(currentT01, N);
+  // idle freezes at the landing frame (full pile). breath uses the bundle's
+  // visibleCount ramp. cascade replaces the ramp with stepped-and-held
+  // discrete frame counts. splay and breath-3d show the full pile but
+  // animate rotation / shear respectively.
+  let vis;
+  if(_modeRuntime.kind === 'idle' || _modeRuntime.kind === 'splay' || _modeRuntime.kind === 'breath-3d'){
+    vis = N * Math.max(1, Math.round(params.stackCycles));
+  } else if(_modeRuntime.kind === 'cascade'){
+    // Muybridge plates: floor(t·steps)/steps mapped to integer frame count,
+    // capped by frameCount. Seam-override forces the t=1 value back to t=0.
+    const steps = clamp(params.frameCount | 0, 1, 40);
+    const w = (currentT01 - Math.floor(currentT01));
+    const stepped = (w === 1 || w === 0) ? 0 : Math.floor(w * steps);
+    vis = Math.min(N * Math.max(1, Math.round(params.stackCycles)), stepped + 1);
+  } else {
+    vis = visibleCountAt(currentT01, N);
+  }
   if(vis === 0){ ctx.restore(); return; }
 
   // World-unit → screen scale. The bundle uses `l = max(1, min(W,H)) / 600`.
@@ -283,7 +343,18 @@ function paint(){
   const dw = tw * l, dh = th * l;
   const cx = W / 2, cy = H / 2;
   const seed = params.rotationSeed | 0;
-  const rangeRad = (params.rotationRange * Math.PI) / 180;
+  // splay scales the rotation range by a cosine pingpong (0→1→0). Cards
+  // splay open at t=0.5, close at the seam — byte-equal endpoints.
+  const splayMul = (_modeRuntime.kind === 'splay') ? pingpong(currentT01) : 1;
+  const rangeRad = (params.rotationRange * Math.PI) / 180 * splayMul;
+  // breath-3d: cosine on shear amount. ctx.transform(1, 0, shx, 1, 0, 0)
+  // applies an oblique Y-shear (z-tilt cue) without rotation, so the card
+  // reads as tipping toward/away from the viewer.
+  const shearAmt = (_modeRuntime.kind === 'breath-3d')
+    ? 0.35 * pingpong(currentT01) : 0;
+  const shAxis = (params.shearAxis * Math.PI) / 180;
+  const shx = Math.cos(shAxis) * shearAmt;
+  const shy = Math.sin(shAxis) * shearAmt;
 
   // Bundle iterates `r = 0..visibleCount`. Card index = r % N, draw index = r.
   // We render in deal order so later cards occlude earlier ones (no z-sort).
@@ -304,6 +375,12 @@ function paint(){
     ctx.save();
     ctx.translate(cx + dx, cy + dy);
     ctx.rotate(rot);
+    if(shearAmt !== 0){
+      // Oblique shear applied AFTER rotate so each card tips along the
+      // global shearAxis, not its own rotated axis. Symmetric across the
+      // loop because shx/shy both ride the pingpong envelope.
+      ctx.transform(1, shy, shx, 1, 0, 0);
+    }
     if(params.showShadow){
       ctx.shadowColor = 'rgba(0,0,0,0.35)';
       ctx.shadowBlur  = 14 * l;
@@ -328,8 +405,17 @@ function paint(){
 }
 
 // ---------- animation ----------
+// applyAnimationT writes _modeRuntime.kind for the current mode. paint()
+// branches on .kind to pick which envelope to apply. All modes are byte-
+// equal at the seam — cascade and splay seam-collapse via stepHeld/pingpong
+// returning 0 at w=1; breath-3d and idle are trivially seam-equal.
+function applyAnimationT(tLoop){
+  _modeRuntime.kind = params.mode || 'breath';
+}
+
 function renderAnimationFrame(tLoop){
   currentT01 = tLoop;
+  applyAnimationT(tLoop);
   if(window.PIXSource?.isVideo()){
     window.PIXSource.advanceFrame();
     rebuildTexture();

@@ -165,3 +165,92 @@ Total: well under the 30 ms/frame budget at 1280×720. The cost is dominated by 
 - `bevel/effect.js` — the port.
 - `bevel/index.html` — control panel + canvas. Mirrors Displace/Edge structure exactly; the bevel-specific rows are `depth`, `lightAngle` (step 45), `effectThreshold` (step 0.01), `showEffect`.
 - `docs/bevel-research.md` — this document.
+
+## Refinement pass (2026-05-13)
+
+The reference effect ships one knob worth animating (lightAngle) and one
+mode (continuous tilt). The refinement splits that single gesture into a
+named mode set, adds two post-build levers (`softness`, `chromaShift`) that
+move the look from "raw chiselled stone" into "polished specular metal",
+and turns the cursor into a literal per-pixel light source.
+
+### Mode table
+
+| mode    | envelope                                         | lever driven   | reads as                                       |
+|---------|--------------------------------------------------|----------------|------------------------------------------------|
+| idle    | constant 0                                       | none           | a still relief — study the chisel marks       |
+| breath  | `(1 − cos 2πt) / 2`                              | depth          | the bevel "inhales" — relief deepens, relaxes |
+| pulse   | `t<0.2 ? t/0.2 : (1 − (t−0.2)/0.8)^2.5`           | depth          | a flashbulb of depth that decays              |
+| tilt    | raw `t` 0→1                                      | lightAngle     | legacy continuous rotating light              |
+| march   | `floor(t · 8) / 8`                               | lightAngle     | 8 cardinal lights, stepped — slide-projector  |
+
+cos/sin are 2π-periodic so `tilt` and `march` close byte-equal by
+construction. `breath` and `pulse` close via their envelope shape. Verified
+via canvas `toDataURL` byte-equal check between `renderAt(0)` and
+`renderAt(1)` for every mode.
+
+### New params
+
+- **softness** (0 … 12 px). Gaussian blur of the bevel buffer via 3-pass
+  separable box blur (central-limit theorem ≈ true Gaussian). Reads as
+  "polished metal" — turns chisel marks into a buttery specular shoulder.
+  Range capped at 12 px so the 3-pass cost stays under the 30 ms budget at
+  the 600 px working canvas.
+- **chromaShift** (0 … 12 px). R / B channel offsets along the global light
+  direction. R pushes with the light, B pulls against, G stays centred —
+  exactly the fringing pattern at the edge of a real chrome surface seen
+  through an imperfect lens. We use the *static* light direction even when
+  the cursor is active because a moving per-pixel chroma vector shimmers
+  badly.
+
+### Interactive flavour: cursor as light source
+
+When `interactive` is on (and `animate` is off), the cursor stops being a
+slider proxy and becomes the actual light. For each pixel we compute the
+vector `(cursorX − x, cursorY − y)`, normalise, and snap to one of the 8
+cardinal {−1, 0, 1}² neighbours so the finite-difference stays a single-tap
+lookup (no per-pixel interpolation cost). Pixels at distance < 1 from the
+cursor fall back to the global angle so the centre isn't a singularity.
+
+The result is a point-light bevel: pixels near the cursor get grazing
+light, pixels far away get shallow light. The chiselled-from-stone look
+acquires real 3D parallax around the cursor.
+
+### References
+
+- **Vera Molnár, "Carrés" series (1970s)** — rotated-square plotter prints
+  taught the field that a single rotating axis reveals form more clearly
+  than a static one. The `tilt` mode is a 60-year-old idea.
+- **John Whitney, *Catalog* (1961)** — analog-computer film whose entire
+  vocabulary is monotonic angle sweeps. The 15 s `tilt` cycle length is
+  borrowed from Whitney's pacing — long enough to read as deliberate, short
+  enough to loop without fatigue.
+- **Inigo Quilez, "Outlines + edges" (iquilezles.org)** — establishes that
+  a 1-pixel directional finite-difference is the right primitive for a
+  cheap bevel; everything fancier (Sobel, normal maps) is a refinement of
+  that primitive. We stay on Quilez's primitive and refine via post-build
+  blur + chroma.
+- **Timothy Lottes, "An Optimized CRT Shader" (2014)** — the light-direction
+  reasoning behind `chromaShift`. Lottes argues per-channel offsets along a
+  light vector are the cheapest way to fake specular fringing; we apply
+  that idea to a finite-difference bevel rather than a CRT.
+
+### Defaults rationale
+
+- `softness = 0`, `chromaShift = 0`: zero-cost defaults preserve the
+  byte-equal reference output. Users opt into the polish.
+- `mode = 'tilt'`: the legacy animation, retained as default. `breath` and
+  `pulse` are deliberately *not* the default because depth-pumping reads
+  more cartoony than a rotating light; tilt is the timeless gesture.
+- `MARCH_STEPS = 8`: matches the bundle's `step:45` lightAngle slider snap.
+  The 8 cardinals are also Molnár's natural alphabet of square rotations.
+- `DEPTH_ANIM` 20 → 120: 20 is the bundle's subtle default; 120 is loud
+  enough to read but stops short of the 500 max where the image
+  binarises. Peak of 120 keeps the bevel readable through the whole pulse.
+
+### Verification
+
+All 5 modes pass: byte-equal seamless loop close, distinct frames at
+t∈{0.25, 0.5, 0.75}, mean frame time 2.0 ms / 24-frame sweep at default
+window size — far under the 30 ms budget. Screenshots: `screenshots/
+bevel-{idle,breath,pulse,tilt,march}.png`.

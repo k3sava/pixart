@@ -81,6 +81,26 @@ const params = {
   showEffect:        true,
   // Loop-animation amplitude (threshold sweep range around base).
   thresholdSweep:    120,
+  // ---- Refinement pass (2026-05-13) ----
+  // mode picks the animation envelope. Each mode is a distinct envelope
+  // (cosine / sawtooth / step) over a different parameter subset. `idle`
+  // = the static-frame contract. `breath` preserves the original behaviour.
+  mode:              'breath',
+  // kernel family — different operators give different edge crispness profiles.
+  //   sobel   = original (smooth magnitudes, the bundle's choice).
+  //   scharr  = better rotational symmetry (Scharr 2000); crisper diagonals.
+  //   prewitt = box-filter cousin, blockier feel — useful for poster looks.
+  kernelFamily:      'sobel',
+  // afterimage halo — paints the COMPLEMENTARY colour at low opacity just
+  // outside each dot. Exploits opponent-process retinal after-images
+  // (Hering, 1878). Reads as a soft glow on still frames; in motion it
+  // creates an illusory contour the eye traces between adjacent dots.
+  haloStrength:      0.25,
+  // Cursor focus radius (interactive mode). Inside the circle, local
+  // threshold drops by half the sweep depth, so detail blooms under the
+  // pointer. Peripheral motion is more visible than central motion
+  // (Carrasco 2011), so a soft falloff reads as natural "looking at".
+  focusRadius:       240,
   // Shared chrome.
   animate:           false,
   interactive:       false,
@@ -238,6 +258,20 @@ function preprocess(){
 // Note: emitted rect position is the *grid cell origin*, not the centre
 // (matches t.rect(a, n, l, l, …) in the bundle). When we paint we'll honour
 // that by drawing top-left aligned squares.
+// Kernel weight tables. Each entry is [w00,w10,w20,w01,w21,w02,w12,w22] in row-major
+// order excluding the centre (Gx/Gy never use it). Scharr (2000) is the
+// rotationally-symmetric optimum; Prewitt is the unweighted box-cousin.
+const KERNELS = {
+  sobel:   { gx:[-1, 0, 1, -2,  2, -1, 0, 1], gy:[-1, -2, -1,  0,  0,  1, 2, 1] },
+  scharr:  { gx:[-3, 0, 3,-10, 10, -3, 0, 3], gy:[-3,-10, -3,  0,  0,  3,10, 3] },
+  prewitt: { gx:[-1, 0, 1, -1,  1, -1, 0, 1], gy:[-1, -1, -1,  0,  0,  1, 1, 1] },
+};
+
+// Optional per-cell threshold override for cursor-focus (interactive mode).
+// We compute it once per build, in source-space coords, so the inner loop
+// stays branchless.
+let _focusCx = -1, _focusCy = -1, _focusR2 = 0, _focusDelta = 0;
+
 function buildRects(){
   if(!preprocessed){ rectCount = 0; return; }
   const W = preprocessed.width, H = preprocessed.height;
@@ -246,14 +280,20 @@ function buildRects(){
   const minD = params.minDotSize;
   const maxD = params.maxDotSize;
   const denom = Math.max(0.0001, 255 - th);
+  const K = KERNELS[params.kernelFamily] || KERNELS.sobel;
+  const useFocus = _focusR2 > 0;
 
   // Worst case: one rect per grid cell. 3 floats per rect.
   const cap = Math.ceil(W / step) * Math.ceil(H / step);
   if(!rects || rects.length < cap * 3) rects = new Float32Array(cap * 3);
   let n = 0;
   // Sobel kernels are baked into the inner loop (unrolled 3×3).
-  for(let y = 0; y < H; y += step){
-    for(let x = 0; x < W; x += step){
+  // _stepPhasePx shifts the grid origin for `march` mode (sawtooth wave).
+  const ph = _stepPhasePx % step;
+  for(let y = -ph; y < H; y += step){
+    if(y < 0) continue;
+    for(let x = -ph; x < W; x += step){
+      if(x < 0) continue;
       // Clamp the kernel centre to interior so the 3×3 window stays inside
       // the buffer. The reference does the same with p5's constrain().
       const cx = x < 1 ? 1 : (x > W - 2 ? W - 2 : x);
@@ -269,20 +309,42 @@ function buildRects(){
       const v00 = lumGrid[i00], v10 = lumGrid[i10], v20 = lumGrid[i20];
       const v01 = lumGrid[i01],                     v21 = lumGrid[i21];
       const v02 = lumGrid[i02], v12 = lumGrid[i12], v22 = lumGrid[i22];
-      // Gx weights: -1 0 1 / -2 0 2 / -1 0 1
-      const gx = (-v00 + v20) + (-2 * v01 + 2 * v21) + (-v02 + v22);
-      // Gy weights: -1 -2 -1 / 0 0 0 / 1 2 1
-      const gy = (-v00 - 2 * v10 - v20) + (v02 + 2 * v12 + v22);
-      const mag = Math.sqrt(gx * gx + gy * gy);
-      if(mag > th){
-        let s = minD + (maxD - minD) * ((mag - th) / denom);
+      const gx = K.gx[0]*v00 + K.gx[1]*v10 + K.gx[2]*v20
+              +  K.gx[3]*v01 +              K.gx[4]*v21
+              +  K.gx[5]*v02 + K.gx[6]*v12 + K.gx[7]*v22;
+      const gy = K.gy[0]*v00 + K.gy[1]*v10 + K.gy[2]*v20
+              +  K.gy[3]*v01 +              K.gy[4]*v21
+              +  K.gy[5]*v02 + K.gy[6]*v12 + K.gy[7]*v22;
+      // Dazzle: zero out one axis. V1 orientation-selective cells fire only
+      // on the live axis, so the field appears to flicker between vertical-
+      // and horizontal-only edges without a luminance change.
+      let gxe = gx, gye = gy;
+      if(_axisMask === 1) gye = 0;
+      else if(_axisMask === 2) gxe = 0;
+      const mag = Math.sqrt(gxe * gxe + gye * gye);
+      // Per-cell threshold: drops near cursor in interactive mode. Inside
+      // the focus circle, local threshold = th - focusDelta. Falloff is
+      // a quadratic-ish bump (1 - r²/R²) clipped at 0, which approximates
+      // a Gaussian cheaply and reads as a soft attentional spotlight.
+      let localTh = th;
+      if(useFocus){
+        const dx = x - _focusCx, dy = y - _focusCy;
+        const d2 = dx*dx + dy*dy;
+        if(d2 < _focusR2){
+          const k = 1 - d2 / _focusR2;
+          localTh = th - _focusDelta * k;
+        }
+      }
+      if(mag > localTh){
+        const ldenom = Math.max(0.0001, 255 - localTh);
+        let s = minD + (maxD - minD) * ((mag - localTh) / ldenom);
         if(s < minD) s = minD;
         if(s > maxD) s = maxD;
         if(s !== 0){
           const o = n * 3;
           rects[o]   = x;
           rects[o+1] = y;
-          rects[o+2] = s;
+          rects[o+2] = s * _dotBoost; // pulse mode swells dots cosine-paced
           n++;
         }
       }
@@ -324,12 +386,31 @@ function paint(){
   const ox = (W - dw) / 2, oy = (H - dh) / 2;
   const scale = dw / sw;
 
-  ctx.fillStyle = params.edgeColor;
-
   // roundRect is in every modern canvas now; fall back to plain rect if not.
   const hasRR = typeof ctx.roundRect === 'function';
   const cr = Math.max(0, params.cornerRadius) * scale;
 
+  // Optional after-image halo. Hering's opponent-process theory: the retina
+  // produces a complement after stimulus. Painting the complementary hue
+  // under each dot at low alpha approximates the perceived halo and pushes
+  // illusory contours between sparse dots — Kanizsa-style filling-in.
+  const halo = clamp(params.haloStrength, 0, 1);
+  if(halo > 0){
+    const comp = complementColor(params.edgeColor);
+    ctx.globalAlpha = halo * 0.45;
+    ctx.fillStyle = comp;
+    for(let k = 0; k < rectCount; k++){
+      const o = k * 3;
+      const x = ox + rects[o] * scale;
+      const y = oy + rects[o+1] * scale;
+      const s = rects[o+2] * scale;
+      const pad = Math.max(2, s * 0.6);
+      ctx.fillRect(x - pad, y - pad, s + pad * 2, s + pad * 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.fillStyle = params.edgeColor;
   for(let k = 0; k < rectCount; k++){
     const o = k * 3;
     const x = ox + rects[o] * scale;
@@ -347,6 +428,19 @@ function paint(){
   ctx.restore();
 }
 
+// Opponent-complement for a hex colour. RGB inversion is the cheap
+// approximation; for true Hering opponency you'd round-trip through Lab,
+// but the eye fills in plenty on its own at low alpha.
+function complementColor(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if(!m) return '#000000';
+  const v = parseInt(m[1], 16);
+  const r = 255 - ((v >> 16) & 255);
+  const g = 255 - ((v >>  8) & 255);
+  const b = 255 - ( v        & 255);
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+
 // ---------- animation ----------
 //
 // 15s seamless loop: lightnessThreshold sweeps base+sweep → base-sweep → base+sweep
@@ -361,19 +455,101 @@ function pingpongT01(t){
   return (1 - Math.cos(w * 2 * Math.PI)) / 2;
 }
 
-function applyAnimationT(tLoop){
-  const t01 = pingpongT01(tLoop);
-  const base = params.lightnessThreshold; // user-set rest value
-  // Animation reveals more detail mid-cycle. We DON'T mutate params here so
-  // the GUI value stays stable; we compute a transient threshold instead.
-  return { threshold: clamp(base - params.thresholdSweep * t01, 0, 255) };
+// Envelopes — every one returns to its t=0 value at t=1 to preserve byte-
+// equal export. Wrap t to [0,1) first so cos(2π·t)==cos(0)==1 in IEEE-754.
+//
+// breath  — cosine sweep on threshold (original). Calm, foveal.
+// rotate  — kernel orientation steps quarter-turn each beat. Peripheral motion
+//           cue without changing geometry; reads as "the light moved".
+// pulse   — dot-size cosine, threshold static. Mach-band glow with halo.
+// march   — sawtooth on step phase: cells appear/disappear in a wave. The
+//           illusory-motion classic (marching-ants without literal ants).
+// dazzle  — gates Gx-only vs Gy-only on a step function. WWI-dazzle stripe
+//           rules: orientation-selective V1 cells fire on whichever axis is
+//           live, producing perceptual flicker without luminance change.
+// idle    — no-op. Rest frame is the artwork.
+function envelopeT(tLoop){
+  let w = tLoop - Math.floor(tLoop);
+  if(w === 1) w = 0;
+  return w; // [0,1)
 }
+
+function applyAnimationT(tLoop){
+  const t01 = envelopeT(tLoop);
+  const pp  = (1 - Math.cos(t01 * 2 * Math.PI)) / 2; // pingpong, peaks at 0.5
+  const base = params.lightnessThreshold;
+  const sweep = params.thresholdSweep;
+  let threshold = base;
+  let kernelFamily = params.kernelFamily;
+  let dotBoost = 1;
+  let gxOnly = false, gyOnly = false;
+  let stepPhase = 0;
+  switch(params.mode){
+    case 'rotate': {
+      // Rotate the kernel a quarter-turn per beat by aliasing through the
+      // three families (sobel/scharr/prewitt). Crispness pulses, but each
+      // step is the SAME at t=0 and t=1 (step 0 == step 4).
+      const beat = Math.floor(t01 * 4) % 4;
+      kernelFamily = ['sobel', 'scharr', 'sobel', 'prewitt'][beat];
+      threshold = clamp(base - sweep * 0.3 * pp, 0, 255);
+      break;
+    }
+    case 'pulse': {
+      // Dot-size pulses; threshold lower mid-cycle so the field swells then
+      // contracts. With halo on, the swell carries a complement glow.
+      dotBoost = 1 + 0.6 * pp;
+      threshold = clamp(base - sweep * 0.5 * pp, 0, 255);
+      break;
+    }
+    case 'march': {
+      // Phase the grid: shift the start of the sparse Sobel scan by
+      // (stepSize · sawtooth). Cells alternate visible/invisible in a wave.
+      // Sawtooth wraps cleanly at t=1.
+      stepPhase = t01; // 0→1 sweep, wraps
+      threshold = clamp(base - sweep * 0.4 * pp, 0, 255);
+      break;
+    }
+    case 'dazzle': {
+      // Step gate on Gx-only / Gy-only. Two states meeting at t=0 and t=1
+      // are the same — a step function on (t01 < 0.5) is byte-equal if we
+      // route t==0 to the "both" state at exactly the loop seam. We do that
+      // implicitly: gx/gy applied at t01==0 is identical to the unmodified
+      // pingpong default, so the seam matches.
+      const phase = (t01 + 0.0001) % 1; // tiny offset so seam = full mode
+      gxOnly = phase >= 0.0 && phase < 0.5;
+      gyOnly = phase >= 0.5 && phase < 1.0;
+      // Override at exact seam to "full" so t=0 and t=1 match.
+      if(t01 === 0){ gxOnly = false; gyOnly = false; }
+      threshold = base;
+      break;
+    }
+    case 'idle': {
+      threshold = base; // no animation
+      break;
+    }
+    case 'breath':
+    default: {
+      threshold = clamp(base - sweep * pp, 0, 255);
+      break;
+    }
+  }
+  return { threshold, kernelFamily, dotBoost, gxOnly, gyOnly, stepPhase };
+}
+
+// Transient axis-mask for dazzle mode. Read by buildRects via globals.
+let _axisMask = 0; // 0=both, 1=gxOnly, 2=gyOnly
+let _stepPhasePx = 0; // marching-grid offset in source-space pixels
+let _dotBoost = 1;
 
 function renderAnimationFrame(tLoop){
   const anim = applyAnimationT(tLoop);
-  // Stash the rest value, swap in the animated threshold, restore after.
   const rest = params.lightnessThreshold;
+  const restKernel = params.kernelFamily;
   params.lightnessThreshold = anim.threshold;
+  params.kernelFamily = anim.kernelFamily;
+  _axisMask = anim.gxOnly ? 1 : anim.gyOnly ? 2 : 0;
+  _stepPhasePx = Math.floor(anim.stepPhase * Math.max(1, params.stepSize | 0));
+  _dotBoost = anim.dotBoost;
 
   // Re-seed grain deterministically so endpoints match for export.
   if(params.grainAmount > 0){
@@ -392,6 +568,8 @@ function renderAnimationFrame(tLoop){
   paint();
 
   params.lightnessThreshold = rest;
+  params.kernelFamily = restKernel;
+  _axisMask = 0; _stepPhasePx = 0; _dotBoost = 1;
 }
 
 function animationLoop(){
@@ -429,31 +607,36 @@ window.WAEffect = {
 // Which keys touch which pipeline stage. Threshold/dot-size keys only need
 // a rebuild (Sobel run); edgeColor / showEffect / cornerRadius are paint-only.
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
-const BUILD_KEYS = new Set(['lightnessThreshold','minDotSize','maxDotSize','stepSize']);
-const PAINT_KEYS = new Set(['cornerRadius','edgeColor','showEffect']);
+const BUILD_KEYS = new Set(['lightnessThreshold','minDotSize','maxDotSize','stepSize','kernelFamily']);
+const PAINT_KEYS = new Set(['cornerRadius','edgeColor','showEffect','haloStrength']);
 
 function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
-  if(params.interactive && !params.animate){
-    // Mouse X drives threshold (0..255), Mouse Y drives maxDotSize (1..40).
-    // These are the two most expressive edge controls; everything else stays
-    // at its slider value.
-    const ax = clamp(mouseX / r.width,  0, 1);
-    const ay = clamp(mouseY / r.height, 0, 1);
-    const nt = Math.round(ax * 255);
-    const nd = Math.max(1, Math.round((1 - ay) * 40));
-    let touched = false;
-    if(nt !== params.lightnessThreshold){
-      params.lightnessThreshold = nt; touched = true;
-      gui?.rows.get('lightnessThreshold')?._write(nt);
-    }
-    if(nd !== params.maxDotSize){
-      params.maxDotSize = nd; touched = true;
-      gui?.rows.get('maxDotSize')?._write(nd);
-    }
-    if(touched) schedule('build');
+  if(params.interactive){
+    // Cursor as a soft focus circle. Inside `focusRadius` the local
+    // threshold drops; outside the field stays at slider value. We map
+    // viewport-space cursor to source-space (Sobel grid) so the focus
+    // stays accurate across canvas sizes.
+    if(!preprocessed){ return; }
+    const sw = preprocessed.width, sh = preprocessed.height;
+    const aspect = sw / sh;
+    const W = cv.width, H = cv.height;
+    let dw, dh;
+    if(W / H > aspect){ dh = H * 0.96; dw = dh * aspect; }
+    else              { dw = W * 0.96; dh = dw / aspect; }
+    const ox = (W - dw) / 2, oy = (H - dh) / 2;
+    const sx = (mouseX * (W / r.width)  - ox) / dw * sw;
+    const sy = (mouseY * (H / r.height) - oy) / dh * sh;
+    // Radius scales from screen px → source px by the same ratio.
+    const rSrc = params.focusRadius * sw / dw;
+    _focusCx = sx; _focusCy = sy; _focusR2 = rSrc * rSrc;
+    _focusDelta = params.thresholdSweep * 0.7;
+    schedule('build');
+  } else if(_focusR2 !== 0){
+    _focusR2 = 0; _focusDelta = 0;
+    schedule('build');
   }
 }
 
@@ -466,6 +649,7 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(key === 'mode'){ /* anim envelope changes; no static rebuild needed */ return; }
     if(params.animate) return; // anim loop owns the frame
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');

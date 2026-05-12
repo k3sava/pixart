@@ -22,24 +22,16 @@
     <span class="current">pixart</span>
   </nav>
   <div class="grow"></div>
-  <nav class="effect-nav">
-      <a href="../ascii/">ascii</a>
-      <a href="../bevel/">bevel</a>
-      <a href="../cellular/">cellular</a>
-      <a href="../crt/">crt</a>
-      <a href="../displace/">displace</a>
-      <a href="../distort/">distort</a>
-      <a href="../dithering/">dithering</a>
-      <a href="../dots/" class="active">dots</a>
-      <a href="../edge/">edge</a>
-      <a href="../gradients/">gradients</a>
-      <a href="../patterns/">patterns</a>
-      <a href="../recolor/">recolor</a>
-      <a href="../scatter/">scatter</a>
-      <a href="../slide/">slide</a>
-      <a href="../stack/">stack</a>
-      <a href="../stippling/">stippling</a>
-    </nav>
+  <nav class="effect-nav compact" aria-label="Effect navigation">
+    <a class="effect-nav-arrow" href="../dithering/" title="Previous effect (dithering)" aria-label="Previous">‹</a>
+    <a href="../" class="effect-nav-home" title="All effects">pixart</a>
+    <span class="effect-nav-sep">/</span>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
+      <span class="effect-nav-name">dots</span>
+      <span class="effect-nav-chev">›</span>
+    </button>
+    <a class="effect-nav-arrow" href="../edge/" title="Next effect (edge)" aria-label="Next">›</a>
+  </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">keys</button>
     <button id="export-png" title="export png">png</button>
@@ -88,6 +80,31 @@
     <div class="wg-row wg-slider" data-key="cornerRadius"       data-min="0"   data-max="20"   data-step="1"><div class="wg-name">Corner radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="displacementFactor" data-min="0"   data-max="20"   data-step="0.5"><div class="wg-name">Noise</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
     <div class="wg-row wg-slider" data-key="angleSweep"         data-min="0"   data-max="720"  data-step="10"><div class="wg-name">Angle sweep</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="breath">breath</option>
+          <option value="march">march</option>
+          <option value="pulse">pulse</option>
+          <option value="rotate">rotate</option>
+          <option value="swirl">swirl</option>
+          <option value="idle">idle</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="dotShape">
+      <div class="wg-name">Dot shape</div>
+      <div class="wg-widget">
+        <select>
+          <option value="round">round</option>
+          <option value="square">square</option>
+          <option value="euclidean">euclidean</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-slider" data-key="screenAngleOffset" data-min="-45" data-max="45" data-step="1"><div class="wg-name">Screen offset</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="focusRadius" data-min="40" data-max="600" data-step="10"><div class="wg-name">Focus radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-color"  data-key="dotColor"><div class="wg-name">Dot color</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
     <div class="wg-row wg-color"  data-key="bgColor"><div class="wg-name">Paper color</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>

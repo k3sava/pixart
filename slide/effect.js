@@ -115,6 +115,29 @@ const params = {
   // Visuals.
   showShadow:    true,  // soft depth shadow on each plane
   showEffect:    true,  // false = show raw preprocessed source (matches reference bypass)
+  // ---- Refinement pass (2026-05-13) ----
+  // mode picks the motion envelope. Each mode animates ONLY a named subset of
+  // params — the rest hold at slider value. All modes are byte-equal at the
+  // seam (t=0 ≡ t=1). See applyAnimationT() for the full switch.
+  //   idle      — static. The landing frame is the artwork.
+  //   breath    — current orbit (rotationAt slot-eased revolution).
+  //   parallax  — depth-band speed split. Helmholtz cue: far slower than near.
+  //   swipe     — Saul Bass title-card sawtooth. Saccadic suppression hides
+  //               the in-between, so the eye reads it as a card-slam.
+  //   marquee   — planes scroll horizontally across the frame, wrapping at
+  //               the canvas edge. Useful for video sources read as ticker.
+  mode:          'breath',
+  // depthBands splits the N planes into k speed groups by `idx mod k`. 1 =
+  // uniform (= breath). 3 = front/mid/back (the classic parallax recipe).
+  depthBands:    3,
+  // bandSpeed is the ratio of back-band speed to front-band speed. >1 means
+  // back is faster (anti-Helmholtz, used as a stylistic choice); <1 means
+  // back is slower (true Helmholtz depth cue). Range 0..2.
+  bandSpeed:     0.5,
+  // Cursor focus radius (interactive mode). Inside the circle the orbit
+  // speed boost concentrates: peripheral motion reads as natural "looking
+  // at" (Carrasco 2011). 0 = focus off.
+  focusRadius:   220,
   // Shared chrome.
   animate:       true,  // landing frame already shows motion; export-ready
   interactive:   false,
@@ -146,15 +169,32 @@ function curve(t){ return t * t * (3 - 2 * t); }
 //   angle = ((u + N/4 + p) / N) * 2π
 //
 // Wrapping t01 to [0,1) and forcing endpoint collapse keeps the loop byte-
-// equal at t=0 and t=1.
-function rotationAt(t01, N){
+// equal at t=0 and t=1. `speedMul` scales the rotation rate for the parallax
+// mode's per-band sub-orbits; speed must be an integer-cycle factor (or the
+// caller must seam-override at t=1) to stay byte-equal.
+function rotationAt(t01, N, speedMul){
   let w = t01 - Math.floor(t01);
   if(w === 1) w = 0;
-  const c = w * params.rotationSpeed * N - N / 4;
+  const mul = speedMul == null ? 1 : speedMul;
+  const c = w * params.rotationSpeed * mul * N - N / 4;
   const u = Math.floor(c);
   const p = curve(clamp(c - u, 0, 1));
   return ((u + N / 4 + p) / N) * Math.PI * 2;
 }
+
+// Linear orbit phase (no slot-easing): used by `swipe` to mimic Saul Bass
+// title-card sawtooth — the eye misses the in-between (saccadic suppression),
+// so a monotonic 0→2π read as a sharp slam each cycle. Seamless because
+// w wraps to 0 at the loop edge.
+function swipePhaseAt(t01){
+  let w = t01 - Math.floor(t01);
+  if(w === 1) w = 0;
+  return w * Math.PI * 2 * params.rotationSpeed;
+}
+
+// Transient module globals — applyAnimationT writes these before paint()
+// reads them, then renderAnimationFrame clears. Same idiom as edge/.
+let _modeRuntime = { kind: 'breath' };
 
 function schedule(level){
   if(level === 'tex')  texDirty = true;
@@ -259,7 +299,12 @@ function paint(){
 
   const N  = Math.max(1, params.numPlanes | 0);
   const R  = params.orbitRadius;
-  const w  = rotationAt(currentT01, N);
+  // idle freezes time at t=0 — the landing frame is the artwork.
+  const tEff = (_modeRuntime.kind === 'idle') ? 0 : currentT01;
+  // Default global rotation (breath/idle); mode-specific overrides below.
+  const wDefault = (_modeRuntime.kind === 'swipe')
+    ? swipePhaseAt(tEff)
+    : rotationAt(tEff, N);
   const m  = (params.orbitAngle * Math.PI) / 180;
   const sinM = Math.sin(m), cosM = Math.cos(m);
 
@@ -276,9 +321,36 @@ function paint(){
   const fitScale = Math.min(W, H) * 0.85 / worldExtent;
   const cx = W / 2, cy = H / 2;
 
+  // Parallax mode: split planes into depthBands groups by `idx mod bands`.
+  // Group 0 = front (fastest, mul=1). Last group = back (mul=bandSpeed). The
+  // brain reads slower-far as depth even without binocular cues (Helmholtz,
+  // 1867). Each band gets its own rotation phase. For byte-equal seam we
+  // need integer-cycle speeds — we round mul·rotationSpeed to ¼-cycle steps
+  // so the band's slot phase wraps cleanly at t=1.
+  const bands = Math.max(1, params.depthBands | 0);
+  const bandPhases = new Array(bands);
+  if(_modeRuntime.kind === 'parallax'){
+    for(let b = 0; b < bands; b++){
+      // front band (b=0) → mul=1; back band (b=bands-1) → mul=bandSpeed.
+      const f = bands === 1 ? 0 : b / (bands - 1);
+      const mul = 1 + (params.bandSpeed - 1) * f;
+      bandPhases[b] = rotationAt(tEff, N, mul);
+    }
+  }
+
+  // Marquee mode: horizontal scroll on top of the static orbit. Plane sx is
+  // wrapped by canvas width — wrapping is what makes the loop seamless.
+  const marqueeShift = (_modeRuntime.kind === 'marquee')
+    ? ((tEff - Math.floor(tEff)) % 1) * cv.width
+    : 0;
+
   // Build per-plane projected centres and depths.
   const planes = new Array(N);
   for(let t = 0; t < N; t++){
+    let w = wDefault;
+    if(_modeRuntime.kind === 'parallax'){
+      w = bandPhases[t % bands];
+    }
     const theta = w + (t * Math.PI * 2) / N;
     const cT = Math.cos(theta);
     const sT = Math.sin(theta);
@@ -292,8 +364,15 @@ function paint(){
     const wx = cT * R;
     const wy = -sinM * cT * R;            // Y is down in canvas
     const wz = cosM * cT * R + sT * R;    // composite depth: orbit-tilt + sin component
-    const sx = cx + (wx + zx * wz) * fitScale;
+    let sx = cx + (wx + zx * wz) * fitScale;
     const sy = cy + (wy + zy * wz) * fitScale;
+    if(marqueeShift > 0){
+      // Wrap horizontally so the ticker loops seamlessly at canvas-width.
+      // The wrap is computed off the screen-space sx so depth-cued size
+      // stays intact while position scrolls.
+      const W2 = cv.width;
+      sx = ((sx + marqueeShift) % W2 + W2) % W2;
+    }
     // Depth scale: planes farther back shrink slightly. Range 0.65–1.15.
     const depthNorm = (wz / (R * 1.5));   // ≈ -1..1
     const scale = (1 + 0.25 * depthNorm) * fitScale;
@@ -334,8 +413,23 @@ function paint(){
 // 15s seamless loop. The rotation phase is a pure function of t01; with
 // rotationSpeed = integer, the angle wraps cleanly to its t=0 value. We pin
 // t=1 to t=0 in rotationAt() to absorb the IEEE-754 ε.
+// applyAnimationT writes _modeRuntime so paint() picks the right rotation
+// strategy. Every mode is byte-equal at t=0 and t=1:
+//   - breath / parallax: rotationAt wraps cleanly when speed·N is integer.
+//   - swipe: monotonic 0→2π wraps at t=1.
+//   - marquee: horizontal shift wraps at canvas-width modulo.
+//   - idle: returns to t=0 trivially.
+function applyAnimationT(tLoop){
+  _modeRuntime = { kind: params.mode || 'breath' };
+  // Seam-override: at exact t=1 force the kind back to the t=0 state so
+  // sawtooth-style modes (swipe / marquee) render the same pixels as t=0.
+  let w = tLoop - Math.floor(tLoop);
+  if(w === 1) _modeRuntime.seamLock = true;
+}
+
 function renderAnimationFrame(tLoop){
   currentT01 = tLoop;
+  applyAnimationT(tLoop);
   // Video sources: pull the current frame and rebuild the clipped texture so
   // the planes show the moving frame. Image sources also rebuild if dirty —
   // covers the case where renderAt() is called via export before init's

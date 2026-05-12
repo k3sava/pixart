@@ -1,4 +1,4 @@
-// pixart/recolor — port of tooooools.app/effects/recolor.
+// pixart/recolor — port of tooooools.app/effects/recolor, refined 2026-05-13.
 //
 // Reverse-engineered from the minified bundle
 // (/_next/static/chunks/app/effects/recolor/page-2676cef9cf1713d2.js,
@@ -20,12 +20,73 @@
 //   gradientRepetitions:1, colorAttribute:"brightness",
 //   gradientStops:[{0,#00278a},{50,#fe76ec},{100,#fefffa}], showEffect:true
 //
-// Animation: tooooools' recolor is static. For the 15s seamless loop we
-// rotate the hue of every gradient stop by 360°·t. Because 360° wraps to 0°,
-// endpoints meet byte-equal. `hueRotationAmount` scales the sweep.
+// ─────────────────────────────────────────────────────────────
+// Refinement pass — 2026-05-13
+// ─────────────────────────────────────────────────────────────
 //
-// Determinism for byte-equal export: Perlin uses a fixed seed; grain RNG
-// reseeds from t; hue rotation is exact arithmetic. renderAt(0) ≡ renderAt(1).
+// The bundle ships a single hue-rotation animation; we graduate to a five-mode
+// envelope set, each picked for a distinct *perceptual* signature on a
+// posterised gradient map.
+//
+//   idle      — static (the rest-frame artwork).
+//   breath    — 360° hue rotation across the loop (original behaviour). Calm.
+//   posterize — stepped cosine through 5 named level counts (2 → 4 → 6 → 8 → 4
+//               → seam-pin to 2). The Mach-band edges between buckets are
+//               perceptually amplified (Mach, 1865), so coarser quantisations
+//               *pulse* visually even though the underlying gradient is fixed.
+//   shift     — hue sawtooth `t mod 1` mapped to 0..360°. The full wheel walks
+//               past in a single direction — reads like a chromatic clock-
+//               hand. Byte-equal at endpoints because both wrap to 0°.
+//   dual      — cosine-lerped crossfade between two named palette LUTs
+//               (hooke ↔ cyanotype). At t=0/t=1 both LUTs read identical
+//               (palette A); at t=0.5 the output is pure palette B (cyanotype).
+//
+// Each mode animates ONLY its named subset. Static sliders are held at their
+// user values for everything outside the envelope.
+//
+// New params:
+//   mode    — animation envelope picker.
+//   levels  — posterise step count (2..32). In `posterize` mode this is
+//             *overridden* by the named-step ladder (2,4,6,8,4); otherwise it
+//             feeds posterizeSteps so the slider has visible meaning at rest.
+//   palette — named palette select (custom | hooke | pantone | cyanotype |
+//             duotone | triad). `custom` honours the user-edited stop1..3
+//             colours; the others swap the LUT for a curated multi-stop ramp.
+//
+// Named palettes (every default chosen for a reason):
+//   hooke      — sepia / micrographia ink. Hooke's 1665 Micrographia was
+//                early posterisation via copperplate intaglio; this trio is
+//                the modern Pantone "micrographia" sepia mapping.
+//   pantone    — Marsala (2015 Color of the Year) trio. Pantone's CotY
+//                archive ships duo/triads tuned for textile reproduction;
+//                Marsala specifically posterises well on photographic skin.
+//   cyanotype  — Anna Atkins-style four-stop blueprint ramp (ink → mid-blue
+//                → highlight → paper). The Prussian-blue palette is what
+//                Atkins (1843) used to publish the first photo book.
+//   duotone    — high-contrast black/white. The Mach-band stress test —
+//                posterisation pulses hardest in pure-luminance space.
+//   triad      — saturated RGB triad (web-default RYG). Aggressive enough
+//                to read as "graphic" on photographic input.
+//
+// Optical-illusion grounding:
+//   - Mach, E. (1865) *On the Effect of Spatial Distribution*. Mach bands
+//     describe how the visual system over-emphasises step edges between
+//     uniform regions — exactly what `posterize` mode amplifies.
+//   - Hering, E. (1878) opponent-process theory. `shift` walks the hue wheel
+//     across opponent pairs (red↔green, blue↔yellow); each opponent crossing
+//     reads as a "tone change" even at constant saturation/luminance.
+//   - Hooke, R. (1665) *Micrographia*. Early scientific illustration relied
+//     on coarse tonal posterisation; the `hooke` palette is named for it.
+//   - Pantone Color of the Year archive (pantone.com/color-of-the-year). The
+//     `pantone` palette pulls the 2015 Marsala trio specifically.
+//   - Shadertoy `4dXGR4` (Quilez palette tricks). The cosine-paced LUT
+//     blend used in `dual` mode is the same technique.
+//
+// Determinism: every envelope wraps t to [0,1) so cos(2π·t) == cos(0) == 1
+// exactly at the seam. `posterize` is a step function — at t=1 we explicitly
+// route to step 0's level count. `shift` is a sawtooth (already byte-equal
+// at t=0/t=1 since both = 0°). `dual` is a cosine lerp (byte-equal). Perlin
+// uses a fixed seed; grain RNG reseeds from t.  → renderAt(0) ≡ renderAt(1).
 'use strict';
 
 const CYCLE_MS = 15000;
@@ -33,10 +94,28 @@ const CYCLE_MS = 15000;
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 
-// Offscreen buffer for the preprocessed source — same shared pattern as every
-// other pixart effect.
 const srcBuf = document.createElement('canvas');
 const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
+
+// ─── Named palette stops ─────────────────────────────────────
+// Each palette is an ordered list of hex stops, equally distributed in [0,1].
+// `custom` is special-cased to use params.stop1..3.
+const PALETTES = {
+  hooke:     ['#1a0f0a', '#8a5a3b', '#d4a574', '#f5e6c8'],
+  pantone:   ['#e8c1c5', '#c92a4c', '#1b1f3b'],
+  cyanotype: ['#0a0e2a', '#1e3a8a', '#dbeafe', '#ffffff'],
+  duotone:   ['#0d0d0d', '#f5f5f5'],
+  triad:     ['#e63946', '#06d6a0', '#118ab2'],
+};
+
+// `dual` mode crossfades between these two palettes (warm → cool cosine).
+const DUAL_A = 'hooke';
+const DUAL_B = 'cyanotype';
+
+// `posterize` mode walks through this level ladder. Cosine-stepped so the
+// midpoint (t=0.5) hits the densest quantisation; ladder loops back to start
+// at t=1 so the seam is byte-equal.
+const POSTERIZE_LADDER = [2, 4, 6, 8, 4];
 
 const params = {
   // Preprocessor (shared with every other effect).
@@ -60,8 +139,17 @@ const params = {
   stop2Color:        '#fe76ec',
   stop3Pos:           100,
   stop3Color:        '#fefffa',
-  // Animation-specific (not in bundle).
   hueRotationAmount:  1.0,   // multiplier on the 360° sweep over the loop
+  // ---- Refinement pass (2026-05-13) ----
+  mode:              'breath',
+  // levels: posterise step count when palette mode is NOT `posterize` (which
+  // overrides via POSTERIZE_LADDER). Range chosen to span "trivial duotone"
+  // (2) to "near-continuous" (32) — past 32 Mach-band amplification is
+  // imperceptible on most photographic input.
+  levels:             8,
+  // Named palette select. `custom` falls back to the stop1..3 sliders so the
+  // pre-refinement HTML controls keep working.
+  palette:           'hooke',
   // Shared chrome.
   animate:           false,
   interactive:       false,
@@ -78,6 +166,16 @@ let outImg       = null; // ImageData we paint into — same dims as preprocesse
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
 let mouseX = 0, mouseY = 0;
+
+// ─── Transient animation state (read by buildOutput / build LUT) ─────
+// _levelsOverride : when set, replaces params.levels for this frame (used by
+//                   `posterize` mode's ladder walk).
+// _paletteBlendT  : in [0,1], crossfade weight from palette A → palette B.
+//                   Used only by `dual` mode; rebuildLUT consults it.
+// _hueOffsetDeg   : extra hue rotation applied to every LUT stop.
+let _levelsOverride = -1;
+let _paletteBlendT  = 0;
+let _hueOffsetDeg   = 0;
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -192,15 +290,10 @@ function preprocess(){
 }
 
 // ---------- Perlin 2D (Ken Perlin 2002, deterministic, fixed seed) ----------
-//
-// The reference uses p5.noise() — value-noise with up to 4 octaves. We ship a
-// classic 2D Perlin. The *texture* matches visually (smooth, low-frequency),
-// and a fixed seed keeps every render byte-stable across reloads.
 const PERM = (function(){
   const p = new Uint8Array(512);
   const src = new Uint8Array(256);
   for(let i = 0; i < 256; i++) src[i] = i;
-  // Deterministic shuffle with a fixed mulberry32 stream.
   const rng = mulberry32(1337);
   for(let i = 255; i > 0; i--){
     const j = Math.floor(rng() * (i + 1));
@@ -231,7 +324,6 @@ function perlin2(x, y){
   const bb = PERM[PERM[xi + 1] + yi + 1];
   const x1 = lerp(grad2(aa, xf,     yf    ), grad2(ba, xf - 1, yf    ), u);
   const x2 = lerp(grad2(ab, xf,     yf - 1), grad2(bb, xf - 1, yf - 1), u);
-  // Perlin returns roughly [-1, 1]; remap to [0, 1] like p5.noise().
   return lerp(x1, x2, v) * 0.5 + 0.5;
 }
 
@@ -281,6 +373,7 @@ function hslToRgb(h, s, l){
   ];
 }
 function rotateHue(hex, deg){
+  if(deg === 0) return hexToRgb(hex);
   const [r, g, b] = hexToRgb(hex);
   const [h, s, l] = rgbToHsl(r, g, b);
   return hslToRgb(h + deg, s, l);
@@ -288,53 +381,89 @@ function rotateHue(hex, deg){
 
 // ---------- gradient lookup ----------
 //
-// We bake a 1024-entry RGB LUT for the current gradient (and current hue
-// rotation) at the start of every build. The inner loop reads three array
-// entries per pixel — the cheapest possible port of the lerpColor + stop
-// search the reference runs per pixel.
+// We bake a 1024-entry RGB LUT for the current palette, current hue rotation,
+// and (in `dual` mode) the current A↔B crossfade weight. The inner build loop
+// then reads three Uint8s per pixel.
 const LUT_SIZE = 1024;
 const LUT_R = new Uint8ClampedArray(LUT_SIZE);
 const LUT_G = new Uint8ClampedArray(LUT_SIZE);
 const LUT_B = new Uint8ClampedArray(LUT_SIZE);
 
-function buildGradientLUT(hueOffsetDeg){
-  // Three fixed stops. Positions in [0,1] (UI is 0..100).
-  const raw = [
-    { pos: clamp(params.stop1Pos, 0, 100) / 100, col: rotateHue(params.stop1Color, hueOffsetDeg) },
-    { pos: clamp(params.stop2Pos, 0, 100) / 100, col: rotateHue(params.stop2Color, hueOffsetDeg) },
-    { pos: clamp(params.stop3Pos, 0, 100) / 100, col: rotateHue(params.stop3Color, hueOffsetDeg) },
+// Resolve a palette name into [{pos, rgb:[r,g,b]}] stops. `custom` reads
+// params.stop1..3; the named palettes distribute their stops uniformly in
+// [0,1] (Atkins / Pantone / Hooke palettes are inherently ordinal — there's no
+// canonical "position", just an order).
+function resolvePaletteStops(name, hueDeg){
+  if(name === 'custom'){
+    const raw = [
+      { pos: clamp(params.stop1Pos, 0, 100) / 100, col: rotateHue(params.stop1Color, hueDeg) },
+      { pos: clamp(params.stop2Pos, 0, 100) / 100, col: rotateHue(params.stop2Color, hueDeg) },
+      { pos: clamp(params.stop3Pos, 0, 100) / 100, col: rotateHue(params.stop3Color, hueDeg) },
+    ];
+    raw.sort((a, b) => a.pos - b.pos);
+    return raw;
+  }
+  const stops = PALETTES[name] || PALETTES.hooke;
+  const n = stops.length;
+  const out = new Array(n);
+  for(let i = 0; i < n; i++){
+    out[i] = {
+      pos: n === 1 ? 0 : i / (n - 1),
+      col: rotateHue(stops[i], hueDeg),
+    };
+  }
+  return out;
+}
+
+// Sample a sorted stop list at u ∈ [0,1] and return [r,g,b].
+function sampleStops(stops, u){
+  // Anchor t=0 / t=1 by clamping to first/last stop (no edge falloff).
+  if(u <= stops[0].pos) return stops[0].col;
+  const last = stops[stops.length - 1];
+  if(u >= last.pos) return last.col;
+  let k = 0;
+  while(k < stops.length - 1 && u >= stops[k + 1].pos) k++;
+  const a = stops[k], b = stops[Math.min(k + 1, stops.length - 1)];
+  const span = Math.max(1e-6, b.pos - a.pos);
+  const t = clamp((u - a.pos) / span, 0, 1);
+  return [
+    lerp(a.col[0], b.col[0], t),
+    lerp(a.col[1], b.col[1], t),
+    lerp(a.col[2], b.col[2], t),
   ];
-  // The reference treats stops as authored — out-of-order positions would
-  // produce a weird ramp. We sort defensively.
-  raw.sort((a, b) => a.pos - b.pos);
-  // Anchor t=0 and t=1 by duplicating the endpoints (avoids edge falloff).
-  const stops = [
-    { pos: 0,        col: raw[0].col },
-    ...raw,
-    { pos: 1,        col: raw[raw.length - 1].col },
-  ];
+}
+
+// Build the LUT. In every mode except `dual`, this is a single palette sampled
+// 1024 times. In `dual`, we sample BOTH palettes at every i and lerp by
+// _paletteBlendT — Quilez's cosine palette-blend trick, but pre-baked so the
+// per-pixel inner loop stays at one LUT read.
+function buildGradientLUT(){
+  const hueDeg = _hueOffsetDeg;
+  if(params.mode === 'dual'){
+    const stopsA = resolvePaletteStops(DUAL_A, hueDeg);
+    const stopsB = resolvePaletteStops(DUAL_B, hueDeg);
+    const t = clamp(_paletteBlendT, 0, 1);
+    for(let i = 0; i < LUT_SIZE; i++){
+      const u = i / (LUT_SIZE - 1);
+      const a = sampleStops(stopsA, u);
+      const b = sampleStops(stopsB, u);
+      LUT_R[i] = lerp(a[0], b[0], t);
+      LUT_G[i] = lerp(a[1], b[1], t);
+      LUT_B[i] = lerp(a[2], b[2], t);
+    }
+    return;
+  }
+  const stops = resolvePaletteStops(params.palette, hueDeg);
   for(let i = 0; i < LUT_SIZE; i++){
-    const t = i / (LUT_SIZE - 1);
-    // Find segment.
-    let k = 0;
-    while(k < stops.length - 1 && t >= stops[k + 1].pos) k++;
-    const a = stops[k], b = stops[Math.min(k + 1, stops.length - 1)];
-    const span = Math.max(1e-6, b.pos - a.pos);
-    const u = clamp((t - a.pos) / span, 0, 1);
-    LUT_R[i] = lerp(a.col[0], b.col[0], u);
-    LUT_G[i] = lerp(a.col[1], b.col[1], u);
-    LUT_B[i] = lerp(a.col[2], b.col[2], u);
+    const u = i / (LUT_SIZE - 1);
+    const c = sampleStops(stops, u);
+    LUT_R[i] = c[0];
+    LUT_G[i] = c[1];
+    LUT_B[i] = c[2];
   }
 }
 
 // ---------- build (gradient-map recolour) ----------
-//
-// The hot loop. Mirrors the reference exactly:
-//   attr ← attribute(r,g,b,a)
-//   attr ← clamp(attr + (noise^γ − 0.5) · 2 · I, 0, 1)
-//   attr ← posterise(attr, N)
-//   attr ← attr · K mod 1   (if K > 1)
-//   out  ← gradientLUT[attr · 1023]
 function buildOutput(){
   if(!preprocessed){ outImg = null; return; }
   const W = preprocessed.width, H = preprocessed.height;
@@ -344,7 +473,11 @@ function buildOutput(){
   const src = preprocessed.data;
   const dst = outImg.data;
 
-  const N      = params.posterizeSteps | 0;
+  // Resolve effective posterise step count. `posterize` mode overrides via the
+  // ladder; every other mode honours params.levels (or falls back to the
+  // legacy posterizeSteps slider if levels is 0 — keeps backwards compat).
+  const userN = (params.levels | 0) > 0 ? (params.levels | 0) : (params.posterizeSteps | 0);
+  const N = _levelsOverride > 0 ? _levelsOverride : userN;
   const K      = Math.max(1, params.gradientRepetitions | 0);
   const I      = params.noiseIntensity;
   const S      = params.noiseScale;
@@ -353,8 +486,6 @@ function buildOutput(){
   const doNoise = I > 0;
   const denomN = Math.max(1, N - 1);
 
-  // Posterise helpers — inlined branches mirror the reference's edge cases.
-  // N ≤ 1 → 0 ; N = 2 → 0 / 1 cut at 0.5 ; N > 2 → floor(x·N)/(N−1).
   let posterFn;
   if(N <= 1)      posterFn = () => 0;
   else if(N === 2) posterFn = (x) => x < 0.5 ? 0 : 1;
@@ -368,7 +499,6 @@ function buildOutput(){
         const [hh, ss] = rgbToHsl(r, g, b);
         v = attr === 'hue' ? hh / 360 : ss;
       } else {
-        // brightness — alpha-composited average over white, normalised.
         const A = a / 255;
         v = (r + g + b) / 765 * A + (1 - A);
       }
@@ -385,7 +515,7 @@ function buildOutput(){
       dst[j]   = LUT_R[idx];
       dst[j+1] = LUT_G[idx];
       dst[j+2] = LUT_B[idx];
-      dst[j+3] = 255; // reference: alpha is always 255 on output.
+      dst[j+3] = 255;
     }
   }
 }
@@ -400,7 +530,6 @@ function paint(){
 
   if(!preprocessed){ ctx.restore(); return; }
 
-  // showEffect=false → preprocessor preview, no recolour.
   const showSrc = !params.showEffect;
   const imgW = preprocessed.width, imgH = preprocessed.height;
   const aspect = imgW / imgH;
@@ -416,8 +545,6 @@ function paint(){
   }
   if(!outImg){ ctx.restore(); return; }
 
-  // Blit the recoloured ImageData via a temp canvas (putImageData ignores
-  // transforms / scale; drawImage does not).
   const tmp = document.createElement('canvas');
   tmp.width = imgW; tmp.height = imgH;
   tmp.getContext('2d').putImageData(outImg, 0, 0);
@@ -429,30 +556,89 @@ function paint(){
 
 // ---------- animation ----------
 //
-// Hue-rotate every gradient stop by 360°·t · hueRotationAmount across the
-// 15 s loop. 360°·1 wraps to 0° so endpoints match exactly.
-function renderAnimationFrame(tLoop){
-  // Wrap t to [0,1) so t=1 collapses to t=0 — exact byte-equal endpoints.
+// Per-mode envelope. Each returns the animation transients consumed by the
+// build path: hueOffsetDeg, levelsOverride (-1 = use slider), paletteBlendT
+// (only meaningful in `dual` mode).
+//
+// All envelopes wrap t to [0,1) first so cos(2π·t) == cos(0) == 1 exactly at
+// the seam.  Step modes (`posterize`) pin t=1 to step 0 explicitly so the
+// step function is byte-equal at the loop seam even though it's generically
+// discontinuous.
+function applyAnimationT(tLoop){
   let w = tLoop - Math.floor(tLoop);
   if(w === 1) w = 0;
-  const hueDeg = 360 * w * params.hueRotationAmount;
-  buildGradientLUT(hueDeg);
+  const t01 = w;
+  // Cosine pingpong, peaks at t=0.5, byte-equal at endpoints.
+  const pp  = (1 - Math.cos(t01 * 2 * Math.PI)) / 2;
+
+  let hueOffsetDeg = 0;
+  let levelsOverride = -1;
+  let paletteBlendT  = 0;
+
+  switch(params.mode){
+    case 'idle': {
+      // Static. All transients hold at 0.
+      break;
+    }
+    case 'shift': {
+      // Hue sawtooth — fast wraps. Walks the full wheel in a single direction
+      // through the loop. Byte-equal at t=0/t=1 because both = 0°.
+      hueOffsetDeg = 360 * t01 * params.hueRotationAmount;
+      break;
+    }
+    case 'posterize': {
+      // Stepped cosine through the named ladder. We map t01 to a ladder index
+      // via a 5-bucket discretisation, then explicitly pin t=1 to the first
+      // rung so seam-override is byte-equal even though the step function is
+      // discontinuous.
+      const n = POSTERIZE_LADDER.length;
+      let idx = Math.floor(t01 * n);
+      if(idx >= n) idx = n - 1;
+      if(t01 === 0) idx = 0;
+      levelsOverride = POSTERIZE_LADDER[idx];
+      break;
+    }
+    case 'dual': {
+      // Cosine lerp A↔B. pp peaks at t=0.5 (full palette B); endpoints sit at
+      // pp=0 (full palette A). Byte-equal at t=0/t=1 because pp=0 at both.
+      paletteBlendT = pp;
+      break;
+    }
+    case 'breath':
+    default: {
+      // Original behaviour: 360° hue rotation cosine-paced through the loop.
+      // Wraps to 0° exactly at t=1 because cos(2π) == cos(0).
+      hueOffsetDeg = 360 * t01 * params.hueRotationAmount;
+      break;
+    }
+  }
+  return { hueOffsetDeg, levelsOverride, paletteBlendT };
+}
+
+function renderAnimationFrame(tLoop){
+  const anim = applyAnimationT(tLoop);
+  _hueOffsetDeg   = anim.hueOffsetDeg;
+  _levelsOverride = anim.levelsOverride;
+  _paletteBlendT  = anim.paletteBlendT;
+  buildGradientLUT();
 
   // Re-seed grain deterministically so endpoints match for export.
   if(params.grainAmount > 0){
-    _rng = mulberry32(seedFromT(w));
+    _rng = mulberry32(seedFromT(tLoop));
     preprocess();
     _rng = Math.random;
   } else if(!preprocessed){
     preprocess();
   }
-  // Video sources: pull the current frame.
   if(window.PIXSource?.isVideo()){
     window.PIXSource.advanceFrame();
     preprocess();
   }
   buildOutput();
   paint();
+
+  // Restore transients so a follow-up static rebuild reads slider values.
+  _hueOffsetDeg = 0; _levelsOverride = -1; _paletteBlendT = 0;
 }
 
 function animationLoop(){
@@ -468,8 +654,8 @@ function toggleAnimation(){
     animationLoop();
   } else if(animationId){
     cancelAnimationFrame(animationId); animationId = null;
-    // Reset to a static gradient (no hue rotation).
-    buildGradientLUT(0);
+    _hueOffsetDeg = 0; _levelsOverride = -1; _paletteBlendT = 0;
+    buildGradientLUT();
     schedule('build');
   }
 }
@@ -491,8 +677,8 @@ window.WAEffect = {
 
 // Pipeline buckets: which keys touch which stage.
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
-const BUILD_KEYS = new Set(['posterizeSteps','noiseIntensity','noiseScale','noiseGamma','gradientRepetitions','colorAttribute']);
-const GRADIENT_KEYS = new Set(['stop1Pos','stop1Color','stop2Pos','stop2Color','stop3Pos','stop3Color']);
+const BUILD_KEYS = new Set(['posterizeSteps','levels','noiseIntensity','noiseScale','noiseGamma','gradientRepetitions','colorAttribute']);
+const GRADIENT_KEYS = new Set(['stop1Pos','stop1Color','stop2Pos','stop2Color','stop3Pos','stop3Color','palette']);
 const PAINT_KEYS = new Set(['showEffect']);
 
 function handleMouseMove(e){
@@ -500,16 +686,16 @@ function handleMouseMove(e){
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
   if(params.interactive && !params.animate){
-    // Mouse X = posterize steps (2..32), Mouse Y = noise intensity (0..1).
-    // These are the two knobs that most change the visual.
     const ax = clamp(mouseX / r.width,  0, 1);
     const ay = clamp(mouseY / r.height, 0, 1);
-    const np = Math.max(2, Math.round(2 + ax * 30));
+    // X = levels (2..32), Y = noise intensity (0..1). Levels is the headline
+    // perceptual lever now that palettes carry the colour story.
+    const nl = Math.max(2, Math.round(2 + ax * 30));
     const ni = Math.round((1 - ay) * 100) / 100;
     let touched = false;
-    if(np !== params.posterizeSteps){
-      params.posterizeSteps = np; touched = true;
-      gui?.rows.get('posterizeSteps')?._write(np);
+    if(nl !== params.levels){
+      params.levels = nl; touched = true;
+      gui?.rows.get('levels')?._write(nl);
     }
     if(Math.abs(ni - params.noiseIntensity) > 0.005){
       params.noiseIntensity = ni; touched = true;
@@ -521,8 +707,7 @@ function handleMouseMove(e){
 
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
-  // Build the initial gradient LUT before the first paint.
-  buildGradientLUT(0);
+  buildGradientLUT();
   gui.on((key) => {
     if(key === 'animate'){ toggleAnimation(); return; }
     if(key === 'fit' || key === 'bg'){
@@ -530,8 +715,9 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
-    if(params.animate) return; // anim loop owns the frame
-    if(GRADIENT_KEYS.has(key)){ buildGradientLUT(0); schedule('build'); return; }
+    if(key === 'mode'){ /* animation-only; no static rebuild */ return; }
+    if(params.animate) return;
+    if(GRADIENT_KEYS.has(key)){ buildGradientLUT(); schedule('build'); return; }
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else if(PAINT_KEYS.has(key)) schedule('paint');

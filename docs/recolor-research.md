@@ -230,3 +230,55 @@ For `hue` / `saturation` add ~8 ms for the per-pixel `rgb→hsl` conversion
 - [x] PNG + MP4 export wired.
 - [x] Video source: `advanceFrame()` per render so video sources also recolour live.
 - [x] Image source: idempotent — repaints same pixels every loop.
+
+## Refinement pass — 2026-05-13
+
+The bundle ships a single hue-rotation animation. This refinement graduates recolor to a five-mode envelope set, plus two new params (`levels`, `palette`), grounded in Mach-band perception theory and the historical posterisation lineage from Hooke (1665) through Atkins (1843) to the Pantone Color of the Year archive.
+
+### Modes
+
+- **idle** — static. The rest-frame artwork.
+- **breath** — 360° hue rotation cosine-paced through the loop (original behaviour, preserved). Endpoints meet byte-equal because cos(2π) ≡ cos(0).
+- **posterize** — stepped cosine through the named level ladder [2, 4, 6, 8, 4]. Discrete jumps between quantisation levels make the Mach bands at posterise boundaries fire perceptually amplified relative to the band interiors (Mach 1865). t=1 is explicitly seam-pinned to step 0 so the step-function loop is byte-equal.
+- **shift** — hue sawtooth `t mod 1` mapped to 0..360°. Walks the full opponent-process wheel (Hering 1878) in a single direction — reads like a chromatic clock hand. Byte-equal at endpoints because both = 0°.
+- **dual** — cosine-paced LUT crossfade between two named palettes (hooke ↔ cyanotype, warm ↔ cool). Endpoints sit at full palette A (cosine = 0); midpoint hits pure palette B. Uses the Quilez cosine-palette technique (Shadertoy `4dXGR4`) but pre-bakes both palettes into a single LUT so the inner per-pixel loop stays at one read.
+
+### New params
+
+- **`levels`** (2..32) — posterise step count when palette mode is *not* `posterize` (which overrides via the ladder). Range chosen so 2 = trivial duotone (Mach bands maximally amplified), 32 = near-continuous (Mach bands imperceptible on photographic input).
+- **`palette`** (custom | hooke | pantone | cyanotype | duotone | triad) — named palette select. `custom` preserves the legacy stop1..3 sliders for backwards compatibility.
+
+### Named palettes
+
+- `hooke`: `['#1a0f0a','#8a5a3b','#d4a574','#f5e6c8']` — sepia / micrographia ink. Hooke's 1665 *Micrographia* was early posterisation via copperplate intaglio; this trio is the modern Pantone "micrographia" sepia.
+- `pantone`: `['#e8c1c5','#c92a4c','#1b1f3b']` — Marsala (2015 Color of the Year) trio. Pantone CotY ramps are tuned for textile reproduction; Marsala specifically posterises well on skin.
+- `cyanotype`: `['#0a0e2a','#1e3a8a','#dbeafe','#ffffff']` — Anna Atkins-style four-stop blueprint ramp (ink → mid-blue → highlight → paper). The Prussian-blue palette is what Atkins (1843) used to publish *Photographs of British Algae* — the first photo book.
+- `duotone`: `['#0d0d0d','#f5f5f5']` — high-contrast black/white. Posterisation Mach-band stress test.
+- `triad`: `['#e63946','#06d6a0','#118ab2']` — saturated RGB triad. Aggressive enough to read as "graphic" on photographic input.
+
+### References
+
+- Mach, E. (1865). *Über die Wirkung der räumlichen Vertheilung des Lichtreizes auf die Netzhaut*. Sitzungsberichte der Mathematisch-Naturwissenschaftlichen Classe der Kaiserlichen Akademie der Wissenschaften 52. — Original Mach-band paper. Lateral inhibition over-emphasises step edges between uniform regions; `posterize` mode amplifies this directly.
+- Hooke, R. (1665). *Micrographia*. Royal Society of London. — Early scientific illustration through coarse tonal posterisation. The `hooke` palette is named for it.
+- Hering, E. (1878). *Zur Lehre vom Lichtsinne*. Carl Gerold's Sohn. — Opponent-process theory. `shift` walks across opponent pairs (red↔green, blue↔yellow), each crossing reading as a tone change at constant saturation/luminance.
+- Atkins, A. (1843). *Photographs of British Algae: Cyanotype Impressions*. — First photo book; defines the Prussian-blue four-stop ramp used in the `cyanotype` palette.
+- Pantone *Color of the Year* archive (pantone.com/color-of-the-year). — Source for the Marsala 2015 trio used in `pantone`.
+- Quilez, I. *Palettes* (Shadertoy `4dXGR4`, iquilezles.org/articles/palettes/). — Cosine palette construction; `dual` mode uses the same blend technique pre-baked into the LUT.
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/recolor/, 1280×720)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| idle      | ✓ | 1 (intentional) | 5.15 |
+| breath    | ✓ | 4 | 5.12 |
+| posterize | ✓ | 4 | 4.93 |
+| shift     | ✓ | 4 | 5.11 |
+| dual      | ✓ | 3 (cosine symmetric: t=0.25 ≡ t=0.75 by pingpong) | 5.03 |
+
+Screenshots in `docs/screenshots/recolor-<mode>.png`.
+
+### Notes for the next maintainer
+
+- `palette: custom` is the legacy escape hatch — when set, the named-palette LUT path is bypassed and the three stop1..3 / position sliders take over. Removing the custom branch would simplify resolvePaletteStops but break stored user state.
+- The LUT is 1024 entries by convention (gradient sampling resolution); doubling to 4096 has no perceptual effect at 8-bit output. Halving to 512 starts producing visible banding inside long gradient stretches with `palette: cyanotype` because that ramp has four stops spread across the full range.
+- `dual` is the only mode that builds the LUT from TWO palettes per frame. If you ever want a 3-way A/B/C crossfade, sample three palettes and use a barycentric weight triple — the inner per-pixel loop still costs one LUT read.

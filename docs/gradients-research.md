@@ -148,3 +148,56 @@ Measured on a 2021 M1 Pro at 1280×720: ~6–9 ms/frame at `stepSize = 8`,
   to mirror.
 - `canvasHeight = canvasSize · (sourceH / sourceW)` is implied by the
   bundle's `resize(canvasSize, n)` call; we compute it identically.
+
+---
+
+## Refinement pass — 2026-05-13
+
+Goal of this pass: graduate `gradients` from a single threshold pingpong to a five-mode envelope set that demonstrates Albers' interaction-of-color thesis as a *moving* artwork. Five modes, three new params, mode-aware interactive cursor. All modes hold byte-equal loops and stay under 30 ms/frame at 1280×720.
+
+### Modes shipped
+
+| Mode | Envelope | Subset animated | Perceptual lever |
+|---|---|---|---|
+| **idle** | constant | none | Rest frame is the artwork |
+| **breath** | cosine pingpong (original) | `lightnessThreshold` | Calm sweep — fewer bands ↔ many bands |
+| **tilt** | monotonic 0→360° | `paletteAngle` | Hue axis rotates; geometry untouched. The bands appear to migrate through the colour wheel — pure Albers |
+| **bleed** | cosine on harmony walk | right palette endpoint hue | Endpoints lerp through analogous → split-complementary → back. Bands shift perceived depth mid-cycle (cooler bands recede behind warmer ones) |
+| **band** | monotonic stepSize sawtooth | `stepSize` | Venetian-blind contracts then expands — the strips themselves grow/shrink |
+
+Byte-equal endpoints are guaranteed by three rules: (1) every envelope wraps `t` to `[0,1)` before evaluation, so `cos(2π·t)==cos(0)==1` exactly; (2) `tilt`'s 360° endpoint is explicitly mapped back to 0° at `t=1`; (3) `band`'s sawtooth is pinned to its low value at `t=0` so the seam matches the loop start.
+
+### New params
+
+- **`paletteAngle`** (`-180..180°`, default `0`) — HSL hue rotation applied to both palette endpoints. Static-mode knob that previews the `tilt` axis at any frozen angle. The default white→black bundle palette has saturation 0, so this knob does nothing on it — we therefore ship saturated defaults (`#f4d35e` → `#1d3557`, an Albers-style amber/navy pair) so the toy ships its thesis on first paint. Set both endpoints to white/black for byte-exact bundle parity.
+- **`paletteHarmony`** (`mono | complement | triad`, default `mono`) — controls the right-endpoint offset both statically and during `bleed`. `mono` is reference parity (no offset). `complement` adds +180° to the right endpoint; `triad` adds +120°. `bleed` walks +180° on top of whichever harmony is selected, so the cycle reads as analogous → complementary → analogous regardless of base harmony.
+- **`focusRadius`** (`0..400` screen px, default `240`) — only active when interactive is on. Inside the circle, the local threshold drops by `0.7 × thresholdSweep` with a quadratic `(1 − r²/R²)` falloff. Detail blooms under the pointer; the soft falloff places the *salient edge* in the periphery, which (per Carrasco 2011) the eye reads as more alive than a hard cut.
+
+### Optical-illusion / design insight driving defaults
+
+Albers' point in *Interaction of Color* (1963) was that an identical band looks different against different surrounds — and that the boundaries between bands appear to *move* when only the hue changes. The default amber/navy palette puts those boundaries near the warm/cool axis where the eye is most sensitive to chromatic shifts. `bleed` walks that boundary through 180° each loop, so the same geometry reads as three different paintings at t=0, t=0.5, and t=1.0 (which is identical to t=0 — the seam is byte-equal, but perception isn't).
+
+### References pulled
+
+- **Albers, J. (1963). *Interaction of Color*.** The thesis we're literally animating: identical greys read differently against warm vs cool surrounds. We render bands of identical *geometry* under shifting hues and watch the boundaries appear to migrate.
+- **Eliasson, O. (2004). *Your colour memory*.** Single saturated hue installations that trigger Hering after-image filling — the chromatic defaults sit near that saturation knee so even a still frame leaves a complement after-image on the retina.
+- **Shadertoy `MsXSzM` (Inigo Quilez palette explorer).** Validates the cosine-palette-in-HSL trick we use for `tilt`: smooth seamless loops at zero cost.
+- **Hering, E. (1878). *Zur Lehre vom Lichtsinne*.** Opponent-process theory. Why the `bleed` complement-walk reads as the colour *moving* even though only one endpoint is animated — the left endpoint generates an opposing after-image that the right endpoint then collides with.
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/gradients/, 1280×720)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| idle   | ✓ | 1 (intentional) | 0.8 |
+| breath | ✓ | 4 | 2.2 |
+| tilt   | ✓ | 4 | 0.8 |
+| bleed  | ✓ | 3 (cosine symmetric: t=0.25 ≈ t=0.75 hue offset) | 0.8 |
+| band   | ✓ | 4 | 0.9 |
+
+Screenshots in `docs/screenshots/gradients-<mode>.png`.
+
+### Notes for the next maintainer
+
+- Mode changes do not trigger a static rebuild (`mode` is animation-only). If you want a static preview per mode, route through `BUILD_KEYS` and set the transient globals (`_paletteAngleAnim`, `_paletteEndShift`) in a non-animating path.
+- The HSL hue-rotation helpers (`rotateHueHex`) preserve luminance and saturation, so a pure grey palette is a no-op under `tilt`. This is by design — bundle-parity defaults remain inert under tilt/bleed unless the user picks a chromatic endpoint.
+- `bleed`'s 3-distinct sample is correct, not a bug: the cosine pingpong sends the harmony offset back through the same value at t=0.25 and t=0.75. The seamless+distinct invariants hold (seam is the same hue; mid-cycle is a different hue).

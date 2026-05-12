@@ -152,3 +152,66 @@ Total per-frame ≈ 13 ms → well under the 24fps budget. At `stepSize=3, canva
 - **Edge thickness / dilation.** `cornerRadius` + `maxDotSize` already covers the visible thickness range users will reach for.
 
 These were called out as possibilities in the brief; skipping them keeps the port faithful to what tooooools ships.
+
+---
+
+## Refinement pass — 2026-05-13
+
+Goal of this pass: graduate `edge` from a single pingpong-on-threshold to a multi-mode optical-illusion field. Six modes, two new params, mode-aware interactive cursor. All modes hold byte-equal loops and stay under 30 ms/frame at 1280×720.
+
+### Modes shipped
+
+| Mode | Envelope | Subset animated | Perceptual lever |
+|---|---|---|---|
+| **breath** | cosine pingpong (original) | `lightnessThreshold` | Calm foveal sweep — sparse skeleton ↔ dense field |
+| **rotate** | step-4 family alias + small cosine | `kernelFamily`, threshold | Crispness rotates; reads as "the light moved" without geometry change |
+| **pulse** | cosine on dot size + threshold | `dotBoost`, threshold | Mach-band swell — pairs with halo for complement glow |
+| **march** | sawtooth on grid phase | `stepPhase` (origin offset) | Cells appear/disappear in a wave — marching-ants illusion without literal ants |
+| **dazzle** | step gate on Gx-only vs Gy-only | `_axisMask` | WWI dazzle stripe rule; V1 orientation-selective cells fire on whichever axis is live |
+| **idle** | constant | none | Defaults frame ships as the artwork |
+
+Byte-equal endpoints are guaranteed by three rules: (1) all envelopes wrap `t` to `[0,1)` before evaluating, so `cos(2π·t)==cos(0)==1` exactly; (2) `march`'s sawtooth wraps to zero phase at `t=1`; (3) `dazzle`'s step gate is overridden to the "both-axes" state at the exact seam, so endpoints meet.
+
+### New params
+
+- **`kernelFamily`** (`sobel | scharr | prewitt`) — Scharr (2000) is the rotationally-symmetric optimum for 3×3 first-derivative kernels; Prewitt is the unweighted box-cousin and reads blockier (good for poster looks). Sobel stays default for parity with the bundle.
+- **`haloStrength`** (`0..1`, default `0.25`) — paints the opponent-complement of `edgeColor` at low alpha just outside each dot, before the dot itself. Default is non-zero so the first paint ships a subtle Hering-after-image glow that draws the eye toward dense edges.
+- **`focusRadius`** (`40..600` screen px) — only active in interactive mode. Inside the circle, local Sobel threshold drops by `0.7 × thresholdSweep`, so detail blooms under the cursor with a quadratic (1−r²/R²) falloff that approximates a Gaussian cheaply.
+
+### Optical-illusion insights baked in
+
+1. **Kanizsa filling-in.** At the high-threshold endpoint of `breath`, the dot field is sparse enough that the eye fills in illusory contours between dots — the lion looks more present than the dots can justify.
+2. **Hering opponency.** The default halo paints the RGB complement of `edgeColor` underneath. Stare at a still frame and the halo intensifies (the retina is doing the work for free).
+3. **Hubel & Wiesel orientation columns.** `dazzle` mode gates one axis of the Sobel gradient at a time; horizontal-only and vertical-only states fire different V1 populations, so the canvas appears to *flicker* without any luminance change.
+4. **Carrasco peripheral motion.** The cursor-focus radius is intentionally wide-default (240 px). Peripheral motion is more visible than foveal motion, so the eye is drawn to the *edge* of the focus circle, not its centre — the toy feels alive even when the cursor sits still.
+5. **Marching-ants without ants.** `march` mode shifts the Sobel grid origin on a sawtooth; cells appear / disappear in a wave that reads as motion even though every dot is locally static.
+
+### References
+
+- Sobel, I. & Feldman, G. (1968). *A 3×3 Isotropic Gradient Operator for Image Processing*. The original kernel paper — gives the [-1,0,1]/[-2,0,2] weighting we mirror.
+- Scharr, H. (2000). *Optimal Operators in Digital Image Processing*. PhD dissertation, Heidelberg — derives the [-3,-10,-3] rotationally-symmetric weights used in the `scharr` family.
+- Hubel, D. H. & Wiesel, T. N. (1962). *Receptive fields, binocular interaction and functional architecture in the cat's visual cortex*. J. Physiol. 160. — orientation-selective V1 cells; the perceptual basis for the `dazzle` mode.
+- Hering, E. (1878). *Zur Lehre vom Lichtsinne*. — opponent-process theory; the basis for the after-image halo.
+- Carrasco, M. (2011). *Visual attention: The past 25 years*. Vision Research 51(13). — peripheral vs foveal motion sensitivity informs the focus-radius default.
+- Inigo Quilez — *Filtering procedural shaders* (https://iquilezles.org/articles/filtering/). Cheaply approximating Gaussian falloffs as quadratic bumps (used in the focus-radius math).
+- Shadertoy `XdfGDH` (Sobel demos gallery). Reference for how Scharr vs Sobel reads on photographic input.
+- Kanizsa, G. (1976). *Subjective contours*. Scientific American 234. — illusory-contour filling-in that justifies the sparse-skeleton default at low thresholds.
+
+### Verification (2026-05-13, Playwright + http://localhost:8001/edge/, 1280×720)
+
+| Mode | byte-equal `renderAt(0)===renderAt(1)` | distinct frames at t=0/0.25/0.5/0.75 | frame ms |
+|---|---|---|---|
+| breath | ✓ | 4 | 12 |
+| rotate | ✓ | 4 | 6 |
+| pulse  | ✓ | 4 | 7 |
+| march  | ✓ | 4 | 6 |
+| dazzle | ✓ | 3 (2 phase states + seam) | 3 |
+| idle   | ✓ | 1 (intentional) | 3 |
+
+Screenshots in `docs/screenshots/edge-<mode>.png`.
+
+### Notes for the next maintainer
+
+- The mode select is non-routing (`mode` change does not trigger a static rebuild) because animation is the only consumer. If you ever want a static preview per mode, route through `BUILD_KEYS` and pass `_axisMask` / `_stepPhasePx` into a non-animating path.
+- `dazzle` distinct-quarters = 3 (not 4) is correct: the mode is a step gate with exactly two perceptual states, and t=0.25 happens to fall on the same Gx-only state as t=0.49. This is the perceptual signature, not a bug.
+- The `_focusR2`/`_focusCx`/`_focusCy` globals are intentionally module-level so the inner Sobel loop stays branchless when interactive mode is off (the `useFocus` flag short-circuits at the top of `buildRects`).

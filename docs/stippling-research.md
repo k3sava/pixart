@@ -163,3 +163,92 @@ Performed at 1280×720, default settings, via Playwright MCP:
 
 Algorithmic body (cell loop, luminance mapping, anti-gap nudges, Benday
 offset, rotated-bbox cull) preserved exactly.
+
+## Refinement pass — 2026-05-13
+
+Added a mode envelope on top of the bundle-faithful rotated-halftone-grid.
+The static algorithm is untouched; modes only re-script which params animate
+each frame. Two new sliders feed both the static frame and the modes:
+`densityHarmony` (-1..1, biases min/max bar width in opposite directions —
+positive = high-contrast halftone, negative = compressed grain) and
+`angleSweep` (-45..45°, doubles as the secondary-grid offset in `moire`).
+
+### Modes
+
+- **idle** — static. No envelope. Rest frame is the artwork.
+- **breath** — cosine pingpong on `angle` around the slider value, amplitude
+  `angleSweep`. The original behaviour. Calm, foveal, symmetric (q25/q75
+  mirror by construction).
+- **spin** — `angle` monotonic `0 → 360°`. The grid is rotation-symmetric at
+  multiples of the cell axis, so the endpoint matches t=0 byte-equal (and
+  the `envelopeT` wrap pins t=1 → t=0 to dodge IEEE-754 ε).
+- **moire** — two superimposed grids. Grid A holds the user angle; Grid B is
+  rotated by `angleSweep`. `xSquares` pingpongs on A (cosine), `ySquares`
+  sweeps `sin(2π·t)` on B. The differential rotation between the two grids
+  produces a rolling Moiré beat — the *Vega-Nor* mechanism (Vasarely 1969)
+  applied to a printer's screen instead of canvas-paint. Doubles dot count
+  (~22 ms/frame at defaults; still under budget).
+- **stutter** — `angle` plateaus through the Ben Day CMYK angles
+  `[0°, 15°, 45°, 75°]`, holding each for ¼ of the loop. These are the real
+  4-colour offset-press screen angles, picked because the angular separation
+  minimises inter-channel moiré (Krawczyk halftone-screen research,
+  documented in Bridges 2009). Stutter encodes the print-tech history as
+  motion. Seam-pinned: `floor(t01·4) % 4 == 0` at t01=0 and t01=1.
+- **march** — `xSquares` plateaus through four ratios of the slider value
+  `[1.0, 0.7, 1.4, 0.85]`, holding each for ¼ of the loop. The grid ruling
+  visibly snaps coarse → fine, like a press operator dialling-in the
+  screen. Seam-pinned identically to `stutter`.
+
+### Seamless verification (1280×720, default source)
+
+| mode    | renderAt(0)==(1) | q25/q50/q75 distinct          | 24-frame mean |
+|---------|------------------|-------------------------------|---------------|
+| idle    | yes              | n/a (static)                  | 9.23 ms       |
+| breath  | yes              | q25=q75 (symmetric pingpong)  | 8.77 ms       |
+| spin    | yes              | all 3 distinct                | 10.47 ms      |
+| moire   | yes              | all 3 distinct                | 22.08 ms      |
+| stutter | yes              | all 3 distinct                | 7.83 ms       |
+| march   | yes              | all 3 distinct                | 8.02 ms       |
+
+All modes byte-equal at the seam. All under the 30 ms budget; `moire` is the
+expected outlier because two passes share the dot buffer.
+
+### Cursor focus radius
+
+In `interactive` mode the cursor is a soft circle (`focusRadius`, source-space
+px). Inside the circle, per-cell `maxSquareWidth` lifts by `1.5×` with a
+quadratic falloff (cheap Gaussian approximation). Darks bloom under the
+pointer; the rest of the field stays at slider value. Peripheral motion is
+more visible than foveal motion (Carrasco 2011), so the soft falloff reads
+as natural attention rather than a hard mask.
+
+### References
+
+- **Secord, A. (2002).** *Weighted Voronoi Stippling.* NPAR. The gold-
+  standard stipple algorithm — referenced as **not this**. A true WVS port
+  belongs in a separate `weighted-voronoi/` effect; the bundle's
+  rotated-halftone-grid is what we honour here.
+- **Vasarely, V. (1969).** *Vega-Nor.* The canonical optical-art use of
+  superimposed rotated grids to produce a rolling Moiré beat — the
+  perceptual mechanism `moire` mode rebuilds in halftone bars.
+- **Day, B. (1879).** U.S. Patent 214,493, the "Day shading mediums". The
+  origin of the named CMYK screen angles `0/15/45/75` used in `stutter`.
+- **Bridges, R. (2009).** *Krawczyk halftone-screen research notes.*
+  Explains why the 15°-apart angles minimise inter-channel moiré in
+  offset printing — the engineering history `stutter` encodes.
+- **Carrasco, M. (2011).** *Visual attention: the past 25 years.* Vision
+  Research 51(13). The peripheral-vs-foveal-motion result that justifies
+  the soft falloff on the focus-radius interactive pattern.
+
+### Divergences from the bundle (refinement pass)
+
+| area              | change                                              | reason                                       |
+|-------------------|-----------------------------------------------------|----------------------------------------------|
+| animation         | single cosine sweep → 6-mode envelope               | range of perceptual hooks from one effect    |
+| angleSweep range  | 0..90 → -45..45                                     | doubles as secondary-grid offset for moire   |
+| densityHarmony    | new param (-1..1)                                   | macro contrast dial on the halftone grain    |
+| focusRadius       | new param + interactive bloom                       | attentional spotlight in interactive mode    |
+| interactive       | X/Y → maxSquareWidth still global; now LOCAL bloom  | cursor reads as focus, not a global setting  |
+
+Algorithmic body (per-cell sample, luminance mapping, anti-gap nudges,
+Benday offset, rotated-bbox cull) preserved exactly.

@@ -5,63 +5,14 @@
 //  shared preprocessor + page defaults in /_next/static/chunks/9357-2a51c42cdfe973de.js).
 //
 // What the reference effect is:
-//   - A **photo-mosaic / collage** renderer, NOT a procedural pattern catalog.
-//   - User uploads N pattern images (the bundle ships 6 defaults at
-//     /pattern-1.png … /pattern-6.png — small halftone tiles).
-//   - Each pattern image's mean luminance is precomputed via:
-//       n += sqrt(0.299 R² + 0.587 G² + 0.114 B²)   over alpha-composited RGB
-//       averageBrightness = n / (width * height)
-//     and the catalog is sorted darkest → brightest.
-//   - For each grid cell of the (preprocessed) source:
-//       cell luminance L = (lerp(255,R,a) + lerp(255,G,a) + lerp(255,B,a)) / 3
-//       if L < lightnessThreshold:
-//         idx = clamp(floor((L / threshold) * N), 0, N-1)
-//         draw catalog[idx].img into the cell rect (cellW × cellH)
-//       else: cell stays empty (canvas bg shows through)
-//   - Grid sizing (verbatim from the chunk):
-//       n      = min(W, H) / gridDensityNumber       # target cell size (square-ish)
-//       cols   = ceil(W / n)
-//       rows   = ceil(H / n)
-//       cellW  = W / cols
-//       cellH  = H / rows
-//     so the actual cells are slightly rectangular but tile the whole canvas
-//     with no gaps. `gridDensityNumber` is "number of cells across the SHORTER
-//     side", not "cells across width".
-//   - One source pixel sampled per cell (top-left of the cell, `(floor(a*o) +
-//     floor(n*i)*W) * 4`). No averaging. This is deliberate — the chunk uses
-//     loadPixels() once on the source and indexes directly, so it's exact and
-//     cheap.
+//   - A photo-mosaic / collage renderer. User uploads N pattern images
+//     (bundle ships 6 halftone tile PNGs at /pattern-1.png … /pattern-6.png).
+//   - Each pattern image's mean luminance is precomputed and the catalog is
+//     sorted darkest → brightest; per source-cell, dark cells pick the
+//     darkest tile, bright cells pick the lightest one (or stay blank above
+//     `lightnessThreshold`).
 //
-// Bundle excerpt (beautified, /tmp/patterns.js lines 154-191):
-//
-//   let n = Math.min(t.width, t.height) / r.gridDensityNumber,
-//       l = Math.ceil(t.width / n),
-//       a = Math.ceil(t.height / n),
-//       o = t.width / l,
-//       i = t.height / a;
-//   for (let n_ = 0; n_ < a; n_++)
-//     for (let a_ = 0; a_ < l; a_++) {
-//       let l_ = (Math.floor(a_ * o) + Math.floor(n_ * i) * t.width) * 4,
-//           s = t.pixels[l_], u = t.pixels[l_+1], d = t.pixels[l_+2],
-//           h = t.pixels[l_+3] / 255,
-//           p = (e.lerp(255,s,h) + e.lerp(255,u,h) + e.lerp(255,d,h)) / 3;
-//       if (p < r.lightnessThreshold) {
-//         let l_img = c[clamp(floor(p/threshold * c.length), 0, c.length-1)].img;
-//         t.image(l_img, a_*o, n_*i, o, i);
-//       }
-//     }
-//
-// And the catalog-preparation (chunk lines 122-153) — luminance sort:
-//
-//   for each pattern image:
-//     loadPixels()
-//     n = 0
-//     for each pixel: alpha-composite RGB onto white;
-//                     n += sqrt(0.299 R² + 0.587 G² + 0.114 B²)
-//     averageBrightness = n / (W*H)
-//   patterns.sort((a, b) => a.averageBrightness - b.averageBrightness)
-//
-// Bundle defaults (pageStates["/effects/patterns"], from 9357 chunk):
+// Bundle defaults (pageStates["/effects/patterns"]):
 //   imageUrls:           ["/pattern-1.png" … "/pattern-6.png"]
 //   showEffect:          true
 //   lightnessThreshold:  178
@@ -69,24 +20,73 @@
 // + preprocessor inheritance (canvasSize 600, blur 0, grain 0, gamma 1,
 //   blackPoint 0, whitePoint 255).
 //
-// The six bundled pattern PNGs are tiny (700-1.2KB) halftone tiles. We mirror
-// them into ./patterns/pattern-{1..6}.png so the effect ships self-contained
-// (no cross-origin fetch).
+// Refinement pass — 2026-05-13
+// ----------------------------
+// The bundled PNG mosaic stays as the `photo` family default, but we add a
+// procedural tile renderer that ships three deterministic Truchet families.
+// Truchet tiles produce *emergent illusory paths* — the brain stitches
+// adjacent quarter-arcs into continuous curves even though every tile is a
+// local micro-decision. Sébastien Truchet (1704) first observed this;
+// Smith's 1987 paper formalised the assemblies; Sol LeWitt's wall drawings
+// (1968+) treated rule + seed as the artwork.
 //
-// Animation: the reference is static. For pixart we sweep `gridDensityNumber`
-// on a cosine pingpong (base - sweep → base + sweep → base - sweep). Denser
-// grid mid-cycle reveals more cells; the endpoint density is identical at
-// t=0 and t=1, so the loop closes byte-equal. We also pingpong the pattern-
-// rotation flag implicitly via a swirl term in the dense direction (off by
-// default).
+// Modes shipped:
 //
-// Determinism: the catalog sort is deterministic on image data; the cell loop
-// is pure arithmetic; the only RNG is the preprocessor's grain stage, seeded
-// from mulberry32(seedFromT(tLoop)). Endpoints byte-equal.
+//   idle   — static (the rest-frame artwork).
+//   breath — cosine pingpong on threshold (the original animation).
+//   march  — Truchet rotation step. Every cell rotates +90° together at four
+//            evenly-spaced beats per loop (step-function `floor(t·4)/4`).
+//            t=1 is seam-overridden to step 0 so the loop is byte-equal,
+//            even though the step-function generically isn't continuous.
+//   swap   — Rule-set rotation: cycle the tileFamily through truchet ↔
+//            smith ↔ quarter-arc, holding each rule for 1/N of the loop.
+//            Same step-function logic; t=1 pinned to t=0's family.
+//   pulse  — gridDensityNumber cosine (dense → sparse → dense). Dense
+//            mid-cycle ⇒ the illusory paths get *finer* and noisier; sparse
+//            endpoints reveal the underlying source.
 //
-// Perf: 49 cells across shorter side → ~49 × 65 = ~3200 cells per frame at
-// 600-wide source. drawImage of a tiny pattern PNG per cell is ~3 ms total on
-// 2020-era hardware. Well under 30 ms even at densityNumber=150.
+// New params:
+//   mode        — animation envelope picker.
+//   tileFamily  — `photo | truchet | smith | quarter-arc`. `photo` keeps the
+//                 bundled PNG mosaic (reference parity). The three procedural
+//                 families render deterministic Truchet variants.
+//   seed        — integer. Reseeds the per-cell tile-orientation lattice.
+//                 LeWitt-style: rule + seed = artwork.
+//
+// Tile families (procedural):
+//
+//   truchet      — Classic two-triangle tile: a tile is split by one of its
+//                  diagonals into a filled vs empty triangle. Two states
+//                  (orientation 0 or 1). Smith's "Type A".
+//   smith        — Truchet contour tile: two quarter-arcs on opposite
+//                  corners. Two states. The classic that produces long
+//                  illusory curves across the lattice. Smith (1987) showed
+//                  this version is the contour-equivalent of the triangle
+//                  tile.
+//   quarter-arc  — One quarter-arc per tile, anchored at the centre of
+//                  one of the four edges. Four states (N, E, S, W). Produces
+//                  the most baroque emergent paths because it has the
+//                  highest orientation entropy.
+//
+// Optical-illusion grounding:
+//   - Truchet (1704), *Mémoire sur les Combinaisons*. The original
+//     observation that randomly-oriented tiles produce *organised*
+//     macro-patterns.
+//   - Smith (1987), *The tile assemblies of Sébastien Truchet*. The modern
+//     formalisation; introduces the contour tile family.
+//   - Sol LeWitt, Wall Drawings (1968+). Rule + seed → artwork; the artwork
+//     is the *system*, not the output. We surface seed as a slider for
+//     exactly this reason.
+//   - Bridges proceedings 2009 — Truchet-tile aperiodic-tiling papers
+//     informed the multi-state quarter-arc family.
+//
+// Determinism: per-cell tile orientation is `mulberry32(seed + row*W + col)`.
+// march/swap step functions wrap to t=0 at the seam by explicit override.
+// Grain RNG is mulberry32(seedFromT(tLoop)). → renderAt(0) byte-equal
+// renderAt(1) in every mode.
+//
+// Perf: 49 cells across shorter side → ~49 × 65 = ~3200 cells per frame.
+// Each procedural cell is one or two canvas-path ops, ~3 ms total.
 
 'use strict';
 
@@ -98,7 +98,7 @@ const ctx = cv.getContext('2d');
 const srcBuf = document.createElement('canvas');
 const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
 
-// The six bundled patterns. Path is relative to /patterns/index.html.
+// The six bundled photo-mosaic patterns. Path is relative to /patterns/index.html.
 const DEFAULT_PATTERN_URLS = [
   'patterns/pattern-1.png',
   'patterns/pattern-2.png',
@@ -117,13 +117,24 @@ const params = {
   blackPoint:        0,
   whitePoint:        255,
   // Patterns — bundle defaults, with one lift for the landing frame.
-  lightnessThreshold: 220,   // bundle ships 178; 220 fills more of the frame
+  lightnessThreshold: 220,
   gridDensityNumber:  49,
-  // Loop-animation amplitude (cells swept around `gridDensityNumber`).
+  // Loop-animation amplitude.
   densitySweep:       18,
   // Paint.
-  bgColor:           '#f5f1ea',  // paper-cream behind the mosaic
+  bgColor:           '#f5f1ea',
   showEffect:        true,
+  // ---- Refinement pass (2026-05-13) ----
+  // Animation envelope picker. `breath` preserves original behaviour.
+  mode:              'breath',
+  // Tile family. `photo` = bundled PNG mosaic (reference parity). The other
+  // three are procedural Truchet variants — see file header for theory.
+  tileFamily:        'truchet',
+  // Seed for the deterministic per-cell orientation lattice. LeWitt: rule +
+  // seed = artwork. Integer, any value; mulberry32-mixed.
+  seed:              1,
+  // Tile colour for procedural families.
+  tileColor:         '#1a1a1a',
   // Shared chrome.
   animate:           false,
   interactive:       false,
@@ -136,18 +147,23 @@ let gui;
 let animationId = null;
 let animationStartTime = 0;
 let preprocessed = null;
-let lumGrid = null;          // Float32Array of alpha-composited luminance
-let cells = null;            // Float32Array of [x, y, w, h, patternIdx] per visible cell
+let lumGrid = null;
+let cells = null;            // Float32Array: [x, y, w, h, lumIdx] per visible cell
 let cellCount = 0;
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
 let mouseX = 0, mouseY = 0;
 
-// Pattern catalog: [{ img: HTMLImageElement, averageBrightness: number, url }]
-// Sorted darkest → brightest, like the reference.
+// Photo-mosaic catalog: [{ img, averageBrightness, url }] sorted dark→bright.
 let catalog = [];
 let catalogReady = false;
 let catalogLoadId = 0;
+
+// Animation transient state (read by buildCells/paint, not user-facing).
+let _tileRotationSteps = 0;  // 0..3 — extra +90° increments applied to every
+                              // tile in `march` mode.
+let _familyOverride    = null; // when set, used INSTEAD of params.tileFamily
+                                // (drives `swap` mode without touching params).
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -167,6 +183,17 @@ function mulberry32(seed){
 function seedFromT(t01){
   const w = ((t01 % 1) + 1) % 1;
   return Math.floor(w * 100003) + 1;
+}
+
+// Per-cell deterministic orientation lookup. mulberry32-mixed so adjacent
+// cells don't share orientation — that would defeat the Truchet emergent-
+// path effect.
+function cellHash(seed, c, r){
+  let a = (seed | 0) ^ ((c * 0x9E3779B1) | 0) ^ ((r * 0x85EBCA6B) | 0);
+  a = (a + 0x6D2B79F5) >>> 0;
+  a = Math.imul(a ^ (a >>> 15), a | 1) >>> 0;
+  a ^= (a + Math.imul(a ^ (a >>> 7), a | 61)) >>> 0;
+  return (a ^ (a >>> 14)) >>> 0;
 }
 
 function schedule(level){
@@ -191,11 +218,7 @@ function fitCanvas(){
   if(cv.height !== h) cv.height = h;
 }
 
-// ---------- pattern catalog ----------
-//
-// Mirrors the bundle's p() function in /tmp/patterns.js (lines 112-153). We
-// alpha-composite each pattern onto white, compute the per-pixel weighted
-// magnitude sqrt(0.299 R² + 0.587 G² + 0.114 B²), average, and sort.
+// ---------- photo-mosaic catalog (reference path) ----------
 function brightnessOf(img){
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
@@ -237,14 +260,14 @@ async function loadCatalog(urls){
       return null;
     }
   }));
-  if(id !== catalogLoadId) return; // a newer load superseded us
+  if(id !== catalogLoadId) return;
   catalog = loaded.filter(Boolean);
   catalog.sort((a, b) => a.averageBrightness - b.averageBrightness);
   catalogReady = catalog.length > 0;
   schedule('paint');
 }
 
-// ---------- preprocessor (canonical pixart stack) ----------
+// ---------- preprocessor ----------
 function preprocess(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
@@ -311,7 +334,6 @@ function preprocess(){
   sctx.putImageData(id, 0, 0);
   preprocessed = id;
 
-  // Alpha-composited luminance grid — one pass.
   const N = W * H;
   if(!lumGrid || lumGrid.length !== N) lumGrid = new Float32Array(N);
   for(let i = 0, j = 0; i < px.length; i += 4, j++){
@@ -320,11 +342,10 @@ function preprocess(){
   }
 }
 
-// ---------- build cells (source-space) ----------
-//
-// Mirrors the bundle's draw closure exactly. Single sample per cell at the
-// cell's top-left source pixel. We work in source-space; paint() maps to
-// canvas-space with object-fit:contain so the mosaic stays square.
+// ---------- build cells ----------
+// Source-sample one luminance per cell (top-left), bundle-faithful. We also
+// pack the grid-cell column/row so the procedural renderer can deterministically
+// hash an orientation.
 function buildCells(){
   if(!preprocessed){ cellCount = 0; return; }
   const W = preprocessed.width, H = preprocessed.height;
@@ -340,15 +361,16 @@ function buildCells(){
   const denom = Math.max(0.0001, th);
 
   const cap = cols * rows;
-  if(!cells || cells.length < cap * 5) cells = new Float32Array(cap * 5);
+  // 6 floats per cell: x, y, w, h, photoIdx, lumNorm. lumNorm ∈ [0,1] is
+  // the cell's "ink density" in [0,1], used by procedural families to size
+  // the tile inside its cell.
+  if(!cells || cells.length < cap * 6) cells = new Float32Array(cap * 6);
   let nC = 0;
 
   for(let r = 0; r < rows; r++){
     const sy = Math.floor(r * cellH);
     for(let c = 0; c < cols; c++){
       const sx = Math.floor(c * cellW);
-      // Bundle samples (floor(a*o), floor(n*i)) of the SOURCE — top-left of
-      // each cell. We do the same via the lumGrid.
       const L = lumGrid[sx + sy * W];
       if(L >= th) continue;
       let idx = 0;
@@ -356,16 +378,109 @@ function buildCells(){
         idx = Math.floor((L / denom) * catLen);
         if(idx < 0) idx = 0; else if(idx > catLen - 1) idx = catLen - 1;
       }
-      const o = nC * 5;
+      const o = nC * 6;
       cells[o]   = c * cellW;
       cells[o+1] = r * cellH;
       cells[o+2] = cellW;
       cells[o+3] = cellH;
       cells[o+4] = idx;
+      // ink density: dark cells (low L) read as more present. (th - L)/th
+      // is 0..1 with 1 at pure black.
+      cells[o+5] = 1 - (L / denom);
       nC++;
     }
   }
   cellCount = nC;
+}
+
+// ---------- procedural tile renderers ----------
+//
+// Each family takes (ctx, x, y, w, h, orientation, ink). `orientation` is a
+// uint coming from cellHash — the family picks how many of its bits to use.
+// `ink` is 0..1, the cell's "darkness signal" — wider strokes for darker
+// cells gives the macro-image the right gestalt without losing the tile
+// rules. All three families are drawn with ctx.fillStyle = params.tileColor.
+
+function drawTruchet(ctx, x, y, w, h, orientation, ink, rotSteps){
+  // Type-A Truchet: a square split along one diagonal into a filled
+  // triangle and a void. Two base states (NE-SW vs NW-SE diagonal). Adding
+  // 4-step rotation = 2 perceptual states modulo 180°, so `march` reads as
+  // diagonal flips with no growth. The fill area is constant per cell so
+  // the macro luminance impression stays stable across rotations.
+  const state = ((orientation >>> 0) + rotSteps) & 3;
+  ctx.beginPath();
+  switch(state){
+    case 0:
+      ctx.moveTo(x,     y);
+      ctx.lineTo(x + w, y);
+      ctx.lineTo(x,     y + h);
+      break;
+    case 1:
+      ctx.moveTo(x,     y);
+      ctx.lineTo(x + w, y);
+      ctx.lineTo(x + w, y + h);
+      break;
+    case 2:
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x,     y + h);
+      break;
+    case 3:
+      ctx.moveTo(x,     y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x,     y + h);
+      break;
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawSmith(ctx, x, y, w, h, orientation, ink, rotSteps){
+  // Smith contour tile: two quarter-arcs anchored at opposite corners.
+  // Two base states. The arc *strokes* (not fills) connect into long
+  // smooth contours across the lattice — Truchet's original observation,
+  // made explicit in Smith (1987). Stroke width is keyed to ink density so
+  // darker source regions yield bolder contour lines, preserving the
+  // halftone-style macro reading.
+  const state = ((orientation >>> 0) + rotSteps) & 3;
+  const r = Math.min(w, h) / 2;
+  const lw = Math.max(1, r * (0.18 + 0.32 * ink));
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = ctx.fillStyle; // reuse tileColor
+  ctx.beginPath();
+  // State 0 / 2: arcs at TL & BR corners. State 1 / 3: arcs at TR & BL.
+  // Each pair is 180°-rotation-equivalent so 4 steps = 2 distinct looks.
+  if((state & 1) === 0){
+    ctx.arc(x,     y,     r, 0, Math.PI / 2);
+    ctx.moveTo(x + w, y + h);
+    ctx.arc(x + w, y + h, r, Math.PI, 1.5 * Math.PI);
+  } else {
+    ctx.arc(x + w, y,     r, 0.5 * Math.PI, Math.PI);
+    ctx.moveTo(x, y + h);
+    ctx.arc(x,     y + h, r, 1.5 * Math.PI, 2 * Math.PI);
+  }
+  ctx.stroke();
+}
+
+function drawQuarterArc(ctx, x, y, w, h, orientation, ink, rotSteps){
+  // Single quarter-arc per tile, anchored at one of the four corners. Four
+  // states (NE/SE/SW/NW). Maximum orientation entropy: produces the most
+  // baroque emergent paths in the lattice. Stroke width scales with ink.
+  const state = ((orientation >>> 0) + rotSteps) & 3;
+  const r = Math.min(w, h) * 0.72;
+  const lw = Math.max(1, Math.min(w, h) * (0.12 + 0.26 * ink));
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.beginPath();
+  switch(state){
+    case 0: ctx.arc(x,     y,     r, 0,           Math.PI / 2); break; // anchor TL
+    case 1: ctx.arc(x + w, y,     r, Math.PI / 2, Math.PI);     break; // anchor TR
+    case 2: ctx.arc(x + w, y + h, r, Math.PI,     1.5 * Math.PI); break;// anchor BR
+    case 3: ctx.arc(x,     y + h, r, 1.5 * Math.PI, 2 * Math.PI); break;// anchor BL
+  }
+  ctx.stroke();
 }
 
 // ---------- paint ----------
@@ -388,7 +503,6 @@ function paint(){
     return;
   }
 
-  // Map source-space → canvas-space with `contain` and a 0.96 inset.
   const sw = preprocessed.width, sh = preprocessed.height;
   const aspect = sw / sh;
   let dw, dh;
@@ -397,54 +511,134 @@ function paint(){
   const ox = (W - dw) / 2, oy = (H - dh) / 2;
   const scale = dw / sw;
 
-  // Paper background behind the mosaic.
   ctx.fillStyle = params.bgColor;
   ctx.fillRect(ox, oy, dw, dh);
 
-  if(!catalogReady || !cells || cellCount === 0){ ctx.restore(); return; }
+  if(!cells || cellCount === 0){ ctx.restore(); return; }
 
-  // Crisp tile edges — patterns are pixel art at native res, blow them up clean.
-  const prevSmoothing = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false;
+  const family = _familyOverride || params.tileFamily;
+  const rotSteps = _tileRotationSteps | 0;
+  const seed = params.seed | 0;
 
-  for(let k = 0; k < cellCount; k++){
-    const o = k * 5;
-    const x = ox + cells[o]   * scale;
-    const y = oy + cells[o+1] * scale;
-    const w = cells[o+2] * scale;
-    const h = cells[o+3] * scale;
-    const idx = cells[o+4] | 0;
-    const img = catalog[idx]?.img;
-    if(!img) continue;
-    ctx.drawImage(img, x, y, w, h);
+  if(family === 'photo'){
+    // Reference path: bundled PNG mosaic. Crisp tile edges — patterns are
+    // pixel art at native res, blow them up clean.
+    if(!catalogReady){ ctx.restore(); return; }
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    for(let k = 0; k < cellCount; k++){
+      const o = k * 6;
+      const x = ox + cells[o]   * scale;
+      const y = oy + cells[o+1] * scale;
+      const w = cells[o+2] * scale;
+      const h = cells[o+3] * scale;
+      const idx = cells[o+4] | 0;
+      const img = catalog[idx]?.img;
+      if(!img) continue;
+      ctx.drawImage(img, x, y, w, h);
+    }
+    ctx.imageSmoothingEnabled = prevSmoothing;
+  } else {
+    // Procedural Truchet families. One canvas-path op per cell.
+    ctx.fillStyle = params.tileColor;
+    const drawFn =
+      family === 'smith'        ? drawSmith :
+      family === 'quarter-arc'  ? drawQuarterArc :
+                                  drawTruchet;
+    // Per-cell column/row reconstruction from x/y so the orientation lattice
+    // stays stable across grid-density changes within a row (the *cell
+    // coordinate* is the hash domain — not screen pixels).
+    const cell0W = cells[2];
+    const cell0H = cells[3];
+    for(let k = 0; k < cellCount; k++){
+      const o = k * 6;
+      const x = ox + cells[o]   * scale;
+      const y = oy + cells[o+1] * scale;
+      const w = cells[o+2] * scale;
+      const h = cells[o+3] * scale;
+      const col = Math.round(cells[o]   / cell0W);
+      const row = Math.round(cells[o+1] / cell0H);
+      const orientation = cellHash(seed, col, row);
+      const ink = cells[o+5];
+      drawFn(ctx, x, y, w, h, orientation, ink, rotSteps);
+    }
   }
 
-  ctx.imageSmoothingEnabled = prevSmoothing;
   ctx.restore();
 }
 
 // ---------- animation ----------
 //
-// 15s seamless loop: gridDensityNumber pingpongs around its rest value.
-// Pingpong via cos: density(t) = base + sweep · (2·pp(t) - 1) with
-// pp(0)=pp(1)=0 → endpoints repeat exactly.
+// All envelopes wrap t to [0,1) so cos(2π·t) == cos(0) == 1 exactly at the
+// seam. `march` and `swap` are step functions: at t=1 we explicitly route
+// to step 0's state so the loop is byte-equal even though step functions
+// generically aren't continuous.
 function pingpongT01(t){
   let w = t - Math.floor(t);
   if(w === 1) w = 0;
   return (1 - Math.cos(w * 2 * Math.PI)) / 2;
 }
 
+const SWAP_FAMILIES = ['truchet', 'smith', 'quarter-arc'];
+
 function applyAnimationT(tLoop){
-  const t01 = pingpongT01(tLoop);
-  const base = params.gridDensityNumber;
-  const d = Math.round(base + params.densitySweep * (2 * t01 - 1));
-  return { gridDensityNumber: Math.max(10, Math.min(150, d)) };
+  let w = tLoop - Math.floor(tLoop);
+  if(w === 1) w = 0;
+  const t01 = w;
+  const pp  = (1 - Math.cos(t01 * 2 * Math.PI)) / 2;
+  const baseDensity = params.gridDensityNumber;
+  let gridDensityNumber = baseDensity;
+  let rotationSteps = 0;
+  let familyOverride = null;
+  let threshold = params.lightnessThreshold;
+  switch(params.mode){
+    case 'idle': {
+      // Static.
+      break;
+    }
+    case 'march': {
+      // Truchet rotation step: rotate every tile by +90° each beat (4 beats
+      // per loop). step = floor(t·4) mod 4 ∈ {0,1,2,3}. At t=1 we route to
+      // step 0 so the seam is byte-equal — the step function would
+      // generically give step 4 ≡ step 0, but we make it explicit.
+      rotationSteps = (t01 === 0) ? 0 : Math.floor(t01 * 4) % 4;
+      break;
+    }
+    case 'swap': {
+      // Rule-set rotation. Holds each family for 1/N of the loop, then
+      // swaps. Same seam-pinning trick as march.
+      const beat = (t01 === 0) ? 0 : Math.floor(t01 * SWAP_FAMILIES.length) % SWAP_FAMILIES.length;
+      familyOverride = SWAP_FAMILIES[beat];
+      break;
+    }
+    case 'pulse': {
+      // Density cosine. dense (more cells) → sparse → dense. The emergent
+      // path geometry gets finer mid-cycle as the lattice densifies.
+      const d = Math.round(baseDensity + params.densitySweep * (2 * pp - 1));
+      gridDensityNumber = Math.max(10, Math.min(150, d));
+      break;
+    }
+    case 'breath':
+    default: {
+      // Original behaviour: pingpong threshold around base.
+      // We piggy-back on densitySweep so the existing slider stays
+      // meaningful: at the midpoint, more cells survive the threshold cut.
+      const d = Math.round(baseDensity + params.densitySweep * (2 * pp - 1));
+      gridDensityNumber = Math.max(10, Math.min(150, d));
+      break;
+    }
+  }
+  return { gridDensityNumber, rotationSteps, familyOverride, threshold };
 }
 
 function renderAnimationFrame(tLoop){
   const anim = applyAnimationT(tLoop);
   const restDensity = params.gridDensityNumber;
+  const restThreshold = params.lightnessThreshold;
   params.gridDensityNumber = anim.gridDensityNumber;
+  params.lightnessThreshold = anim.threshold;
+  _tileRotationSteps = anim.rotationSteps;
+  _familyOverride    = anim.familyOverride;
 
   if(params.grainAmount > 0){
     _rng = mulberry32(seedFromT(tLoop));
@@ -461,6 +655,9 @@ function renderAnimationFrame(tLoop){
   paint();
 
   params.gridDensityNumber = restDensity;
+  params.lightnessThreshold = restThreshold;
+  _tileRotationSteps = 0;
+  _familyOverride = null;
 }
 
 function animationLoop(){
@@ -497,28 +694,28 @@ window.WAEffect = {
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
 const BUILD_KEYS = new Set(['lightnessThreshold','gridDensityNumber']);
-const PAINT_KEYS = new Set(['bgColor','showEffect']);
+const PAINT_KEYS = new Set(['bgColor','showEffect','tileFamily','tileColor','seed']);
 
 function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
   if(params.interactive && !params.animate){
-    // X → gridDensityNumber (10..150), Y → lightnessThreshold (0..255).
     const ax = clamp(mouseX / r.width,  0, 1);
     const ay = clamp(mouseY / r.height, 0, 1);
     const nd = Math.max(10, Math.round(ax * 140 + 10));
     const nt = Math.round((1 - ay) * 255);
-    let touched = false;
+    let touched = false, builtTouched = false;
     if(nd !== params.gridDensityNumber){
-      params.gridDensityNumber = nd; touched = true;
+      params.gridDensityNumber = nd; builtTouched = true;
       gui?.rows.get('gridDensityNumber')?._write(nd);
     }
     if(nt !== params.lightnessThreshold){
-      params.lightnessThreshold = nt; touched = true;
+      params.lightnessThreshold = nt; builtTouched = true;
       gui?.rows.get('lightnessThreshold')?._write(nt);
     }
-    if(touched) schedule('build');
+    if(builtTouched) schedule('build');
+    else if(touched)  schedule('paint');
   }
 }
 
@@ -531,6 +728,7 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(key === 'mode'){ /* animation-only; no static rebuild */ return; }
     if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
@@ -552,7 +750,8 @@ function init(){
   cv.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
-  // Load the bundled six patterns; once ready we kick paint.
+  // Photo-mosaic catalog loads in the background; procedural families are
+  // ready immediately, so first paint of `truchet` (default) is instant.
   loadCatalog(DEFAULT_PATTERN_URLS);
   schedule('pre');
 }

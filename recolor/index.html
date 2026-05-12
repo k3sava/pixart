@@ -22,24 +22,16 @@
     <span class="current">pixart</span>
   </nav>
   <div class="grow"></div>
-  <nav class="effect-nav">
-      <a href="../ascii/">ascii</a>
-      <a href="../bevel/">bevel</a>
-      <a href="../cellular/">cellular</a>
-      <a href="../crt/">crt</a>
-      <a href="../displace/">displace</a>
-      <a href="../distort/">distort</a>
-      <a href="../dithering/">dithering</a>
-      <a href="../dots/">dots</a>
-      <a href="../edge/">edge</a>
-      <a href="../gradients/">gradients</a>
-      <a href="../patterns/">patterns</a>
-      <a href="../recolor/" class="active">recolor</a>
-      <a href="../scatter/">scatter</a>
-      <a href="../slide/">slide</a>
-      <a href="../stack/">stack</a>
-      <a href="../stippling/">stippling</a>
-    </nav>
+  <nav class="effect-nav compact" aria-label="Effect navigation">
+    <a class="effect-nav-arrow" href="../pixel-sort/" title="Previous effect (pixel-sort)" aria-label="Previous">‹</a>
+    <a href="../" class="effect-nav-home" title="All effects">pixart</a>
+    <span class="effect-nav-sep">/</span>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
+      <span class="effect-nav-name">recolor</span>
+      <span class="effect-nav-chev">›</span>
+    </button>
+    <a class="effect-nav-arrow" href="../rgb-shift/" title="Next effect (rgb-shift)" aria-label="Next">›</a>
+  </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">keys</button>
     <button id="export-png" title="export png">png</button>
@@ -101,6 +93,32 @@
     <div class="wg-row wg-color"  data-key="stop3Color"><div class="wg-name">Stop 3</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
 
     <div class="wg-row wg-slider" data-key="hueRotationAmount" data-min="0" data-max="4" data-step="0.1"><div class="wg-name">Hue sweep ×</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="levels" data-min="2" data-max="32" data-step="1"><div class="wg-name">Levels</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-select" data-key="palette">
+      <div class="wg-name">Palette</div>
+      <div class="wg-widget">
+        <select>
+          <option value="hooke">hooke</option>
+          <option value="pantone">pantone</option>
+          <option value="cyanotype">cyanotype</option>
+          <option value="duotone">duotone</option>
+          <option value="triad">triad</option>
+          <option value="custom">custom</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="breath">breath</option>
+          <option value="posterize">posterize</option>
+          <option value="shift">shift</option>
+          <option value="dual">dual</option>
+          <option value="idle">idle</option>
+        </select>
+      </div>
+    </div>
     <div class="wg-row wg-bool" data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool" data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
   </div>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Film grain — pixart</title>
+<link rel="stylesheet" href="../shared/chrome.css">
+<link rel="stylesheet" href="../shared/gui.css">
+<script src="../shared/theme.js"></script>
+</head>
+<body class="wa-effect">
+
+<header class="wa-top">
+  <div class="theme-switcher-container">
+    <button class="theme-switcher-pill" aria-label="Cycle theme" title="Cycle theme">
+      <span class="theme-switcher-pill-icon">●</span>
+    </button>
+  </div>
+  <nav class="kami-breadcrumb">
+    <a href="https://iamkesava.com">home</a><span class="sep">·</span>
+    <a href="https://toys.iamkesava.com">toys</a><span class="sep">·</span>
+    <span class="current">pixart</span>
+  </nav>
+  <div class="grow"></div>
+  <nav class="effect-nav compact" aria-label="Effect navigation">
+    <a class="effect-nav-arrow" href="../edge/" title="Previous effect (edge)" aria-label="Previous">‹</a>
+    <a href="../" class="effect-nav-home" title="All effects">pixart</a>
+    <span class="effect-nav-sep">/</span>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
+      <span class="effect-nav-name">film-grain</span>
+      <span class="effect-nav-chev">›</span>
+    </button>
+    <a class="effect-nav-arrow" href="../flow-field/" title="Next effect (flow-field)" aria-label="Next">›</a>
+  </nav>
+  <div class="wa-actions">
+    <button id="help-btn" title="Keyboard shortcuts">keys</button>
+    <button id="export-png" title="export png">png</button>
+    <button id="export-mp4" title="record loopable video">video</button>
+  </div>
+</header>
+
+<main class="wa-stage">
+  <canvas id="cv"></canvas>
+</main>
+
+<aside class="wg" id="panel">
+  <div class="wg-title" role="button" tabindex="0">Controls</div>
+  <div class="wg-body">
+    <div class="wg-row wg-file" data-key="source" data-handler="pix-source">
+      <div class="wg-name">Source</div>
+      <div class="wg-widget">
+        <label class="wg-file-label">click to choose</label>
+        <button type="button" class="wg-file-open" title="Open file (image or video)">+</button>
+        <button type="button" class="wg-shuffle" title="Cycle bundled sample">↻</button>
+        <input type="file" accept="image/*,video/*">
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="fit">
+      <div class="wg-name">Fit</div>
+      <div class="wg-widget">
+        <select><option value="cover">cover</option><option value="contain">contain</option></select>
+      </div>
+    </div>
+    <div class="wg-row wg-color" data-key="bg">
+      <div class="wg-name">Background</div>
+      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
+    </div>
+    <div class="wg-row wg-slider" data-key="canvasSize" data-min="100" data-max="1000" data-step="10"><div class="wg-name">Canvas size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="idle">idle</option>
+          <option value="breath">breath</option>
+          <option value="flicker">flicker</option>
+          <option value="march">march</option>
+          <option value="pulse">pulse</option>
+          <option value="roll">roll</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="filmStock">
+      <div class="wg-name">Film stock</div>
+      <div class="wg-widget">
+        <select>
+          <option value="portra-400">portra 400</option>
+          <option value="vision3-5219">vision3 5219</option>
+          <option value="ektar-100">ektar 100</option>
+          <option value="velvia-50">velvia 50</option>
+          <option value="tri-x-400">tri-x 400</option>
+          <option value="cinestill-800t">cinestill 800t</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-slider" data-key="grainAmount" data-min="0" data-max="1" data-step="0.02"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="grainSize" data-min="0.5" data-max="4" data-step="0.1"><div class="wg-name">Grain size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="halation" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Halation</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="halationRadius" data-min="0" data-max="30" data-step="1"><div class="wg-name">Halation radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="gateWeave" data-min="0" data-max="6" data-step="0.1"><div class="wg-name">Gate weave</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="vignette" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Vignette</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="matte" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Matte</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="temperature" data-min="-1" data-max="1" data-step="0.05"><div class="wg-name">Temperature</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="seed" data-min="1" data-max="999" data-step="1"><div class="wg-name">Seed</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="focusRadius" data-min="40" data-max="600" data-step="10"><div class="wg-name">Focus radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-bool" data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool" data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
+  </div>
+</aside>
+
+<div class="wa-rec" role="status"><span class="dot"></span><span class="label">Recording</span><div class="track"><div class="bar"></div></div></div>
+
+<footer class="wa-bottom">
+  <nav class="row sister" aria-label="Sister sites">
+    <span><a href="https://apps.iamkesava.com/">apps</a></span><span class="sep">·</span>
+    <span><a href="https://tools.iamkesava.com/">tools</a></span><span class="sep">·</span>
+    <span class="current">toys</span><span class="sep">·</span>
+    <span><a href="https://codex.iamkesava.com/">codex</a></span>
+  </nav>
+  <div class="row made">
+    made by <a href="https://iamkesava.com" rel="author">kesava</a> <span class="sep">·</span> <a href="https://github.com/k3sava/pixart" rel="noopener">github</a>
+  </div>
+</footer>
+
+<script src="../shared/state.js" defer></script>
+<script src="../shared/keys.js" defer></script>
+<script src="../shared/gui.js" defer></script>
+<script src="../shared/export.js" defer></script>
+<script src="effect.js" defer></script>
+</body>
+</html>

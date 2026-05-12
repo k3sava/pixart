@@ -22,24 +22,16 @@
     <span class="current">pixart</span>
   </nav>
   <div class="grow"></div>
-  <nav class="effect-nav">
-      <a href="../ascii/">ascii</a>
-      <a href="../bevel/">bevel</a>
-      <a href="../cellular/">cellular</a>
-      <a href="../crt/">crt</a>
-      <a href="../displace/">displace</a>
-      <a href="../distort/">distort</a>
-      <a href="../dithering/">dithering</a>
-      <a href="../dots/">dots</a>
-      <a href="../edge/">edge</a>
-      <a href="../gradients/">gradients</a>
-      <a href="../patterns/">patterns</a>
-      <a href="../recolor/">recolor</a>
-      <a href="../scatter/" class="active">scatter</a>
-      <a href="../slide/">slide</a>
-      <a href="../stack/">stack</a>
-      <a href="../stippling/">stippling</a>
-    </nav>
+  <nav class="effect-nav compact" aria-label="Effect navigation">
+    <a class="effect-nav-arrow" href="../rgb-shift/" title="Previous effect (rgb-shift)" aria-label="Previous">‹</a>
+    <a href="../" class="effect-nav-home" title="All effects">pixart</a>
+    <span class="effect-nav-sep">/</span>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
+      <span class="effect-nav-name">scatter</span>
+      <span class="effect-nav-chev">›</span>
+    </button>
+    <a class="effect-nav-arrow" href="../slide/" title="Next effect (slide)" aria-label="Next">›</a>
+  </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">keys</button>
     <button id="export-png" title="export png">png</button>
@@ -84,6 +76,20 @@
     <div class="wg-row wg-slider" data-key="maxPointSize"       data-min="1"   data-max="50"   data-step="1"><div class="wg-name">Max dot size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="relaxIterations"    data-min="0"   data-max="20"   data-step="1"><div class="wg-name">Relax iterations</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="relaxStrength"      data-min="0"   data-max="1"    data-step="0.01"><div class="wg-name">Relax strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="magnetism" data-min="0" data-max="1" data-step="0.01"><div class="wg-name">Magnetism</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="coherence" data-min="0" data-max="1" data-step="0.01"><div class="wg-name">Coherence</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="breath">breath</option>
+          <option value="drift">drift</option>
+          <option value="bloom">bloom</option>
+          <option value="magnetic">magnetic</option>
+          <option value="idle">idle</option>
+        </select>
+      </div>
+    </div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>

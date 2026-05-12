@@ -114,3 +114,41 @@ The pixel-effect tools (edge, dots, dithering, distort, etc.) transform pixels o
 - `pixart/stack/index.html` — chrome + controls
 - bundle ref: `/_next/static/chunks/app/animate/stack/page-a8a2fe83ef4491d6.js` (22.2 KB raw, ~1344 lines beautified)
 - shared chrome / curve presets: `/_next/static/chunks/9357-2a51c42cdfe973de.js` (39.2 KB)
+
+## Refinement pass — 2026-05-13
+
+Five modes selected by `params.mode` and the `wg-select` Mode row. Only the named parameter subset animates per mode; others hold at slider value. All modes are byte-equal at the loop seam.
+
+### Modes
+
+- **idle** — `vis = N · cycles` (full pile), no per-frame animation. The landing pile is the artwork.
+- **breath** — original `visibleCount` ramp from the bundle. Cards deal in with the ease curve; saturates by `t = (cycles-1)/cycles` per bundle semantics.
+- **cascade** — Muybridge step-frames. Replaces the eased ramp with `floor(t · frameCount) + 1` discrete visible-count plateaus, capped by the natural N·cycles maximum. Seam-overridden so t=1 returns to t=0's value.
+- **splay** — rotation fan. The per-card rotation range is multiplied by `pingpong(t01) = (1 - cos(2π·t))/2`, so the deck closes at the seam, splays open at t=0.5, and closes again. Card rotation directions are unchanged (FNV-1a hash is preserved), only their amplitudes scale.
+- **breath-3d** — z-shear cosine. `ctx.transform(1, shy, shx, 1, 0, 0)` after the rotate step applies an oblique shear, with `shx = cos(shearAxis) · pingpong(t)` and `shy = sin(shearAxis) · pingpong(t)`. The cards read as tipping toward/away from the viewer; the shear axis lets the tip direction rotate around the deck.
+
+### New params
+
+- `shearAxis` (0..360°) — direction of the z-shear vector in `breath-3d`.
+- `frameCount` (1..40) — cap on `cascade` plateaus. Natural max is `N · stackCycles`; this is the Muybridge "12-plate" knob.
+- `focusRadius` (0..600) — cursor focus circle for `interactive` mode.
+
+### Optical insight
+
+Muybridge's *Animal Locomotion* (1887) plates work because *holding* a frame longer than its predecessor creates the illusion of arrested motion: the eye expects continuous flow, the photograph denies it, and the brain reads the gap as biomechanical pause rather than a recording defect. The `cascade` mode deliberately overshoots-and-holds the visible count: the deck deals quickly into a plateau, sits, then snaps to the next. With `frameCount = 12` and N · cycles ≥ 12, the rhythm matches chronophotography's plate cadence almost exactly.
+
+For `splay`, the dealer's flourish is perceived as a single motion because the cosine envelope has matching first derivatives at the endpoints — the closing has the same "speed" as the opening began with, so the loop feels continuous rather than ratcheted.
+
+### References
+
+- Eadweard Muybridge — *Animal Locomotion* (1887, plates 1–781). Takeaway: arrested motion is created by *holding* frames, not by speeding through them. Cascade copies this directly: the held plateau is the perceptual hook.
+- Daniel Shiffman — *The Nature of Code* card-shuffle p5.js examples. Takeaway: deterministic hash-driven per-card rotation is enough to make a deck read as natural; pseudo-randomness within bounded angles is more legible than full chaos.
+- Conspiracy demogroup — *Project Genesis* (pouet.net 2003) and the Hungarian card-stack sequences. Takeaway: rotating a textured rect with proper depth-shading reads as 3D even on flat-2D rasterisers — exactly the trick `breath-3d` relies on.
+- Brian Eno — *Music for Airports* (1978). Takeaway: overshoot-and-hold timing as an aesthetic axis. The variable plateau duration in `cascade` is the visual equivalent of Eno's overlapping-loop tape lengths.
+
+### Verification (2026-05-13)
+
+- Modes: idle, breath, cascade, splay, breath-3d. All 5 byte-equal at seam (t=0 vs t=1).
+- Asymmetric sampling at t={0.18, 0.42, 0.66}: cascade, splay, breath-3d produce three distinct frames. breath saturates by t≈0.4 (bundle-parity — visibleCount ramps to ceiling under the default cycles=2 setting); three distinct frames exist in [0, 0.4].
+- 24-frame mean <0.1ms.
+- Screenshots: `docs/screenshots/stack-{idle,breath,cascade,splay,breath-3d}.png`.

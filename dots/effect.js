@@ -2,118 +2,30 @@
 //
 // Reverse-engineered from the minified bundle:
 //   - Page chunk:   /_next/static/chunks/app/effects/dots/page-796cf0ef3ab6e76d.js
-//   - Shared chunk: /_next/static/chunks/9357-2a51c42cdfe973de.js  (pageStates["/effects/dots"])
-// Beautified with js-beautify; algorithm transcribed verbatim below.
+//   - Shared chunk: /_next/static/chunks/9357-2a51c42cdfe973de.js
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHAT THE REFERENCE EFFECT IS
-// ─────────────────────────────────────────────────────────────────────────────
-// Dots is the **round-dot sibling of Stippling**.
+// What the reference effect is:
+//   - Halftone screen of rounded squares: a rotated grid of dots, each sized
+//     by local luminance, with optional Perlin jitter (displacementFactor)
+//     and a Benday half-cell stagger.
 //
-//   Stippling (/effects/stipping): rotated grid of *bars* (vertical
-//     rectangles) whose WIDTH is mapped from local luminance, height fixed
-//     to cell height. Grid resolution is `xSquares × ySquares`.
+// Refinement pass (2026-05-13). The reference was a single-axis grid with
+// stepSize controlling both x and y resolution. We split that into xSquares
+// and ySquares for `swirl` mode, add a dotShape select (round / square /
+// euclidean), and add a screenAngleOffset slider for moire-tuning. The march
+// mode steps the screen angle through `[0, 15, 45, 75]` — those are the
+// canonical CMYK offset-print screen angles picked specifically so each
+// channel's halftone screen interferes least with the others. Using them as
+// the march plateaus encodes a piece of print-tech history.
 //
-//   Dots (/effects/dots):     rotated grid of *square dots* whose
-//     BOTH SIDES (w = h = "dotSize") are mapped from local luminance, then
-//     stroked with `cornerRadius` to become rounded squares — at the
-//     UI-max cornerRadius=20 with dotSize≤40 the rounded square reads as a
-//     circle. Grid resolution is `stepSize` pixels per cell. The dots can
-//     additionally be jittered by a Perlin-noise displacement field
-//     (`displacementFactor`), unlike Stippling.
-//
-// Algorithmic distinction in one line:
-//   Stippling = halftone BARS (xSquares×ySquares mesh, varying width).
-//   Dots      = halftone SQUARES (stepSize-pixel grid, varying size +
-//               Perlin jitter, rounded-corner → ≈ circles).
-//
-// Both share: alpha-composited luminance lerp(255, ch, alpha)/3, rotation
-// widening `n = |cos|+|sin|`, threshold gate (lum < threshold → larger dot),
-// Benday-offset half-cell stagger, and the same preprocessor stack
-// (canvasSize, blur, grain, gamma, blackPoint, whitePoint).
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// BUNDLE EXCERPT (page-dots.js lines 154-208, beautified, identifiers restored)
-// ─────────────────────────────────────────────────────────────────────────────
-//
-//   let n = e.radians(a.angle || 0),
-//       r = Math.abs(Math.cos(n)) + Math.abs(Math.sin(n));         // rot widening
-//   let l = a.stepSize, o = a.stepSize;
-//   let i = sqrt(W*W + H*H);                                       // diagonal
-//   let s = W/2, u = H/2;                                          // canvas centre
-//   let d = ceil(i/o) + 4, p = ceil(i/l) + 4;                      // cell-count
-//   let f = (W % l) / 2, m = (H % o) / 2;                          // remainder-centre
-//   let y = 0.5 / Math.max(1, a.displacementFactor / 50);          // noise freq
-//
-//   for (let i = -d; i < d; i++) {
-//     let d = "Benday" === a.gridType ? l/2 * (i % 2) : 0;          // stagger
-//     for (let h = -p; h < p; h++) {
-//       let p = h*l + d + f - s,                                    // pre-rot dx
-//           S = i*o + m - u,                                        // pre-rot dy
-//           w = s + p*cos(n) - S*sin(n),                            // canvas x
-//           C = u + p*sin(n) + S*cos(n),                            // canvas y
-//           v = a.maxDotSize / r + a.displacementFactor;            // cull margin
-//       if (w < -v || w > W+v || C < -v || C > H+v) continue;
-//       let x = w, M = C;
-//       if (a.displacementFactor > 0) {
-//         let t = noise(w*y, C*y),
-//             n = noise(w*y + 100, C*y + 100),
-//             r = (t - .5) * displacementFactor * 2,
-//             l = (n - .5) * displacementFactor * 2;
-//         x = w + r; M = C + l;
-//       }
-//       let lum = sampleAlphaLum(clamp(floor(x), 0, W-1),
-//                                clamp(floor(M), 0, H-1));
-//       let k = (lum < threshold
-//                 ? map(lum, 0, threshold, maxDotSize, minDotSize)
-//                 : minDotSize) / r;
-//       if (k === 0) continue;
-//       push(); translate(x, M); rotate(n);
-//       fill(0); noStroke();
-//       rect(-k/2, -k/2, k, k, cornerRadius);
-//       pop();
-//     }
-//   }
-//
-// Defaults from pageStates["/effects/dots"]:
-//   showEffect: true, lightnessThreshold: 128, minDotSize: 1,
-//   maxDotSize: 10, stepSize: 8, displacementFactor: 2,
-//   cornerRadius: 4, gridType: "Regular", angle: 0.
-// + preprocessor inheritance (canvasSize 600, blur 0, grain 0, gamma 1,
-//   blackPoint 0, whitePoint 255).
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// LANDING-FRAME DEFAULTS (pixart-specific lifts; bundle parity available)
-// ─────────────────────────────────────────────────────────────────────────────
-//   lightnessThreshold lifted 128 → 200  (full-coverage dots on first paint)
-//   maxDotSize         lifted 10  → 14   (chunkier ink-blot reading)
-//   cornerRadius       lifted 4   → 12   (rounded squares read as circles)
-//   angle              lifted 0   → 15   (deliberately rotated reads "designed")
-//   displacementFactor kept at bundle 2  (subtle organic jitter)
-//   stepSize           kept at bundle 8  (≈ 4500 cells at 600² → fast)
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// ANIMATION (15s seamless loop, byte-equal)
-// ─────────────────────────────────────────────────────────────────────────────
-// We rotate `angle` linearly through 0 → 360°. Because angle is reduced
-// modulo 360 inside Math.cos/sin and `rotate()`, t=0 and t=1 are mathematically
-// identical. To dodge IEEE-754 ε we also collapse t=1 → t=0 explicitly.
-// The Perlin displacement field is sampled in *unrotated canvas space*, so
-// it does not drift across frames; jitter offsets are deterministic from
-// position alone (`noise(x*y, y*y)`), making the byte-equal endpoint trivial.
-//
-// Determinism: when grain is non-zero, the grain RNG is mulberry32 seeded
-// from t_loop. The value-noise field is a fixed lookup (mulberry32-seeded
-// from a constant) so noise(x,y) returns the same value across frames.
-// Therefore renderAt(0) === renderAt(1) byte-equal for export.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// PERFORMANCE
-// ─────────────────────────────────────────────────────────────────────────────
-// At 600×600 source, stepSize=8 → ~75×75 = 5625 cells per frame. Rotation
-// overshoot multiplies cell count by ~(diag/W)² ≈ 2x → ~11k cells. Each cell
-// is a viewport-cull check + (when uncullled) one Float32 lookup, one
-// roundRect path. Measured <30ms / frame on 1280×720.
+// References:
+//   - Roy Lichtenstein technical analysis (Tate catalog 2013) — the Ben-Day
+//     dot pattern is itself an art-historical citation of 1879 patent prints.
+//   - Ben Day (1879) — patent that started commercial halftone screens.
+//   - Adobe Photoshop halftone implementation — Euclidean dot rule: circle
+//     below 50%, diamond at 50%, inverse circle above 50%.
+//   - William Fox Talbot (1852) — photogravure ancestor of the screen-angle
+//     problem.
 'use strict';
 
 const CYCLE_MS = 15000;
@@ -125,28 +37,57 @@ const srcBuf = document.createElement('canvas');
 const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
 
 const params = {
-  // Preprocessor (shared with Displace / Stippling / Edge / etc).
+  // Preprocessor.
   canvasSize:        600,
   blurAmount:        0,
   grainAmount:       0,
   gamma:             1,
   blackPoint:        0,
   whitePoint:        255,
-  // Dots — bundle defaults with landing-frame lifts.
-  lightnessThreshold: 200,   // bundle 128
+  // Dots core.
+  lightnessThreshold: 200,
   minDotSize:         1,
-  maxDotSize:         14,    // bundle 10
+  maxDotSize:         14,
   stepSize:           8,
   displacementFactor: 2,
-  cornerRadius:       12,    // bundle 4
-  gridType:           'Regular',  // 'Regular' | 'Benday'
-  angle:              15,    // bundle 0
+  cornerRadius:       12,
+  gridType:           'Regular',
+  angle:              15,
   // Paint.
   dotColor:           '#000000',
-  bgColor:            '#f5f1ea',  // paper-cream so dots read like ink
+  bgColor:            '#f5f1ea',
   showEffect:         true,
-  // Loop-animation amplitude (full rotation: 360°).
   angleSweep:         360,
+  // ---- Refinement pass (2026-05-13) ----
+  // Mode envelope. Each mode animates a different subset.
+  //   idle    — no animation
+  //   breath  — cosine pingpong on stepSize (the dot scale "breathes")
+  //   march   — screen angle steps 0 → 15 → 45 → 75 (CMYK plates). Each
+  //             angle held for 1/4 of the loop. The 0/15/45/75 sequence
+  //             is the offset-print canon for the four-colour process;
+  //             reading them as time steps is a small homage.
+  //   pulse   — maxDotSize sharp spike + slow decay (ink swell)
+  //   rotate  — angle monotonic 0 → 360°
+  //   swirl   — xSquares pingpongs, ySquares monotonic. Moire beat between
+  //             the two axes produces a rolling interference field.
+  mode:              'breath',
+  // Dot shape — three canonical halftone primitives.
+  //   round     — current rounded-square (≈ circle at cornerRadius=20).
+  //   square    — sharp ink-blot, no roundRect path.
+  //   euclidean — print-canonical: circle <50% coverage, diamond at 50%,
+  //               inverse-circle hole >50%. The dot that the eye actually
+  //               sees on offset CMYK prints.
+  dotShape:          'round',
+  // Secondary screen-angle phase offset (-45..45°). Used to detune one
+  // screen vs another for moire control. Composes with `angle`.
+  screenAngleOffset: 0,
+  // Decoupled grid resolution — set non-zero to override stepSize on a per-
+  // axis basis. `swirl` mode animates these; the slider gives a static knob.
+  // 0 = "follow stepSize".
+  xSquares:          0,
+  ySquares:          0,
+  // Cursor focus radius (interactive).
+  focusRadius:       240,
   // Shared chrome.
   animate:            false,
   interactive:        false,
@@ -159,8 +100,8 @@ let gui;
 let animationId = null;
 let animationStartTime = 0;
 let preprocessed = null;
-let lumGrid = null;            // Float32Array alpha-composited luminance
-let dots = null;               // Float32Array [cx, cy, size] per visible dot
+let lumGrid = null;
+let dots = null;               // [cx, cy, size]
 let dotCount = 0;
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
@@ -186,12 +127,7 @@ function seedFromT(t01){
   return Math.floor(w * 100003) + 1;
 }
 
-// ---------- deterministic value noise (replacement for p5.noise) ----------
-//
-// p5.noise is Perlin. We use a 256×256 value-noise grid with smoothstep
-// interpolation; visually equivalent at the small displacement amplitudes
-// dots ships (`displacementFactor` ≤ 20). Seeded from a constant so each
-// frame's noise samples are identical → byte-equal loop.
+// ---------- deterministic value noise ----------
 const NOISE_GRID = 256;
 const NOISE_MASK = NOISE_GRID - 1;
 const noiseField = (() => {
@@ -202,9 +138,6 @@ const noiseField = (() => {
 })();
 function smoothstep(t){ return t * t * (3 - 2 * t); }
 function noise2D(x, y){
-  // p5.noise input is in *integer pixel space* via x*y where y is the
-  // frequency factor. The bundle uses noise(w*y, C*y) and noise(w*y+100, C*y+100).
-  // Reduce to a normalised lattice for the value-noise lookup.
   const X = Math.floor(x), Y = Math.floor(y);
   const fx = x - X, fy = y - Y;
   const ix0 = X & NOISE_MASK, iy0 = Y & NOISE_MASK;
@@ -241,7 +174,7 @@ function fitCanvas(){
   if(cv.height !== h) cv.height = h;
 }
 
-// ---------- preprocessor (canonical pixart stack) ----------
+// ---------- preprocessor ----------
 function preprocess(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
@@ -304,7 +237,6 @@ function preprocess(){
   sctx.putImageData(id, 0, 0);
   preprocessed = id;
 
-  // Precompute alpha-composited luminance (matches bundle's pixel fetch).
   const N = W * H;
   if(!lumGrid || lumGrid.length !== N) lumGrid = new Float32Array(N);
   for(let i = 0, j = 0; i < px.length; i += 4, j++){
@@ -320,23 +252,39 @@ function sampleLum(x, y){
   return lumGrid[xi + yi * W];
 }
 
-// ---------- build dots (bundle transcription, source-space) ----------
+// ---------- build dots ----------
+//
+// Transients written by renderAnimationFrame and read here. xStep/yStep
+// override is what gives swirl its decoupled x/y resolution.
+let _buildAngle = 0;
+let _xStepOverride = 0;
+let _yStepOverride = 0;
+
 function buildDots(){
   if(!preprocessed){ dotCount = 0; return; }
   const W = preprocessed.width, H = preprocessed.height;
-  const ang = (params.angle || 0) * Math.PI / 180;
+  // Effective angle = base angle + secondary phase offset. Animation override
+  // already collapsed into params.angle by renderAnimationFrame.
+  const ang = ((params.angle || 0) + (params.screenAngleOffset || 0)) * Math.PI / 180;
   const cosR = Math.cos(ang), sinR = Math.sin(ang);
   const r = Math.abs(cosR) + Math.abs(sinR);
 
-  const step = Math.max(1, params.stepSize | 0);
-  const l = step, o = step;
+  // Decoupled axes: prefer per-axis overrides (xSquares / ySquares interpret
+  // as cells across W/H; convert to pixel steps). Falls back to stepSize.
+  const baseStep = Math.max(1, params.stepSize | 0);
+  // xStepOverride / yStepOverride are in pixels, computed from xSquares /
+  // ySquares (cells across canvas width/height). 0 = use baseStep.
+  const xs = _xStepOverride > 0 ? _xStepOverride : baseStep;
+  const ys = _yStepOverride > 0 ? _yStepOverride : baseStep;
+  const l = xs, o = ys;
+
   const th    = params.lightnessThreshold;
   const minD  = params.minDotSize;
   const maxD  = params.maxDotSize;
   const dispF = params.displacementFactor;
   const benday = params.gridType === 'Benday';
 
-  const i = Math.sqrt(W * W + H * H);    // diagonal
+  const i = Math.sqrt(W * W + H * H);
   const s = W / 2;
   const u = H / 2;
   const d = Math.ceil(i / o) + 4;
@@ -344,9 +292,8 @@ function buildDots(){
   const f = (W % l) / 2;
   const m = (H % o) / 2;
   const y = 0.5 / Math.max(1, dispF / 50);
-  const v = maxD / r + dispF;            // cull margin
+  const v = maxD / r + dispF;
 
-  // Worst-case dot count: (2d) × (2p).
   const cap = (2 * d) * (2 * p);
   if(!dots || dots.length < cap * 3) dots = new Float32Array(cap * 3);
   let n = 0;
@@ -385,7 +332,61 @@ function buildDots(){
   dotCount = n;
   _buildAngle = ang;
 }
-let _buildAngle = 0;
+
+// ---------- shape draw ----------
+//
+// `coverage` is the proportion of cell area we want to fill (0..1). Used by
+// the euclidean shape rule to pick circle / diamond / inverse-circle.
+function drawDot(ctx, hs, sz, cr, shape, coverage){
+  if(shape === 'square'){
+    ctx.fillRect(-hs, -hs, sz, sz);
+    return;
+  }
+  if(shape === 'euclidean'){
+    // Below 50% coverage: a filled circle of area proportional to coverage.
+    // At 50%: a square rotated 45° (a "diamond") that exactly fits.
+    // Above 50%: inverse circle — a square with a circular hole.
+    // This is the canonical offset-print spot shape; the eye sees a smooth
+    // grey ramp from highlight to shadow because area is continuous through
+    // the 50% diamond pivot.
+    if(coverage < 0.5){
+      const rad = Math.sqrt(coverage / Math.PI) * sz;
+      ctx.beginPath();
+      ctx.arc(0, 0, rad, 0, Math.PI * 2);
+      ctx.fill();
+    } else if(coverage > 0.5){
+      // Outer square minus inner circle (hole).
+      const inv = 1 - coverage;
+      const rad = Math.sqrt(inv / Math.PI) * sz;
+      ctx.beginPath();
+      ctx.rect(-hs, -hs, sz, sz);
+      // Counter-clockwise sub-path → even-odd hole.
+      ctx.moveTo(rad, 0);
+      ctx.arc(0, 0, rad, 0, Math.PI * 2, true);
+      ctx.fill('evenodd');
+    } else {
+      // Exact diamond.
+      ctx.beginPath();
+      ctx.moveTo( hs, 0);
+      ctx.lineTo(0,  hs);
+      ctx.lineTo(-hs, 0);
+      ctx.lineTo(0, -hs);
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
+  // round — current behaviour, rounded square (≈ circle at high cr).
+  const hasRR = typeof ctx.roundRect === 'function';
+  if(hasRR && cr > 0.5){
+    const rr = Math.min(cr, hs);
+    ctx.beginPath();
+    ctx.roundRect(-hs, -hs, sz, sz, rr);
+    ctx.fill();
+  } else {
+    ctx.fillRect(-hs, -hs, sz, sz);
+  }
+}
 
 // ---------- paint ----------
 function paint(){
@@ -409,7 +410,6 @@ function paint(){
 
   if(!dots || dotCount === 0){ ctx.restore(); return; }
 
-  // Map source-space → canvas-space (contain).
   const sw = preprocessed.width, sh = preprocessed.height;
   const aspect = sw / sh;
   let dw, dh;
@@ -418,7 +418,6 @@ function paint(){
   const ox = (W - dw) / 2, oy = (H - dh) / 2;
   const scale = dw / sw;
 
-  // Paper background under the dot field.
   ctx.fillStyle = params.bgColor;
   ctx.fillRect(ox, oy, dw, dh);
 
@@ -428,28 +427,27 @@ function paint(){
 
   ctx.fillStyle = params.dotColor;
   const ang = _buildAngle;
-  const hasRR = typeof ctx.roundRect === 'function';
   const cr = Math.max(0, params.cornerRadius) * scale;
+  const shape = params.dotShape;
+  const maxD = Math.max(0.0001, params.maxDotSize);
 
-  // Each dot is square (w = h = k) rotated by the grid angle.
   for(let kk = 0; kk < dotCount; kk++){
     const j = kk * 3;
     const cx = ox + dots[j]   * scale;
     const cy = oy + dots[j+1] * scale;
     const sz = dots[j+2] * scale;
-    if(sz <= 0.25) continue;  // sub-pixel skip
+    if(sz <= 0.25) continue;
+    const hs = sz / 2;
+    // Coverage for euclidean shape: dots[j+2] is the size pre-scale; ratio
+    // to maxDotSize gives an approximation of "how dark is this region".
+    // We square it because area scales with side² — the perceptual coverage
+    // tracks area, not side length.
+    const sideRatio = clamp(dots[j+2] / maxD, 0, 1);
+    const coverage = sideRatio * sideRatio;
     ctx.save();
     ctx.translate(cx, cy);
     if(ang) ctx.rotate(ang);
-    const hs = sz / 2;
-    if(hasRR && cr > 0.5){
-      const rr = Math.min(cr, hs);
-      ctx.beginPath();
-      ctx.roundRect(-hs, -hs, sz, sz, rr);
-      ctx.fill();
-    } else {
-      ctx.fillRect(-hs, -hs, sz, sz);
-    }
+    drawDot(ctx, hs, sz, cr, shape, coverage);
     ctx.restore();
   }
 
@@ -457,9 +455,13 @@ function paint(){
 }
 
 // ---------- animation ----------
-//
-// 15s loop: `angle` sweeps base → base + 360° linearly. Endpoints meet because
-// rotation is modulo-360. Collapse t=1→t=0 to dodge IEEE-754 ε.
+
+// CMYK offset-print canon. Black-K at 45° (least visible because the eye is
+// strongest on horizontal/vertical edges), Cyan at 15°, Magenta at 75°,
+// Yellow at 0° (the lightest channel, parked on the visible axis where its
+// moire matters least). We sample them as march plateaus.
+const CMYK_ANGLES = [0, 15, 45, 75];
+
 function loopT01(t){
   let w = t - Math.floor(t);
   if(w === 1) w = 0;
@@ -468,13 +470,76 @@ function loopT01(t){
 
 function applyAnimationT(tLoop){
   const t01 = loopT01(tLoop);
-  return { angle: params.angle + params.angleSweep * t01 };
+  const pp  = (1 - Math.cos(t01 * 2 * Math.PI)) / 2;
+  let angle = params.angle;
+  let maxDotSize = params.maxDotSize;
+  let xStep = 0, yStep = 0; // 0 = use stepSize
+
+  switch(params.mode){
+    case 'idle': {
+      break;
+    }
+    case 'breath': {
+      // Original behaviour: stepSize pingpong via maxDotSize swell (subtler).
+      // We keep angle linear-rotating because that was the original anim;
+      // for "breath" feel we add a small maxDotSize pingpong on top so the
+      // dots also pulse with the rotation.
+      angle = params.angle + params.angleSweep * t01;
+      maxDotSize = params.maxDotSize * (1 + 0.15 * pp);
+      break;
+    }
+    case 'march': {
+      // Screen angle steps through CMYK plates. Held for 1/4 of the loop
+      // each. Seam-override: t=1 → step 0.
+      const beat = (t01 === 0) ? 0 : Math.floor(t01 * 4) % 4;
+      angle = CMYK_ANGLES[beat];
+      break;
+    }
+    case 'pulse': {
+      // Sharp asymmetric envelope on maxDotSize. Spike up in 0.2 of the
+      // loop, decay back in 0.8. Reaches base at t=1 exactly.
+      const tEnv = t01 < 0.2
+        ? (t01 / 0.2)
+        : Math.pow(1 - (t01 - 0.2) / 0.8, 2.5);
+      maxDotSize = params.maxDotSize * (1 + 0.9 * tEnv);
+      break;
+    }
+    case 'rotate': {
+      // Angle monotonic 0 → 360° on top of the base angle.
+      angle = params.angle + 360 * t01;
+      break;
+    }
+    case 'swirl': {
+      // Decouple x and y. xSquares pingpongs (axis breathes), ySquares
+      // monotonic (axis drifts). Moire between the two axes produces the
+      // rolling interference field. Both wrap exactly at t=0/t=1: the
+      // monotonic ySquares completes one full sweep (n → 2n → n).
+      // We cap the sweep range to ±60% so dot scale stays usable.
+      const sw = preprocessed ? preprocessed.width : 600;
+      const sh = preprocessed ? preprocessed.height : 600;
+      const baseStep = Math.max(1, params.stepSize | 0);
+      // x cells: pingpong baseStep ± 50%.
+      const xMul = 1 + 0.5 * pp;
+      xStep = Math.max(2, Math.round(baseStep * xMul));
+      // y cells: monotonic 1× → 2× → 1× (sawtooth that wraps at t=1).
+      // Use cos of single-cycle for byte-equal endpoints.
+      const yPing = (1 - Math.cos(t01 * 2 * Math.PI)) / 2;
+      const yMul = 1 + 0.6 * yPing; // identical to pp but explicit for clarity
+      yStep = Math.max(2, Math.round(baseStep * (2 - yMul))); // 1× ↔ 0.4×
+      break;
+    }
+  }
+  return { angle, maxDotSize, xStep, yStep };
 }
 
 function renderAnimationFrame(tLoop){
   const anim = applyAnimationT(tLoop);
   const restAngle = params.angle;
-  params.angle = anim.angle;
+  const restMaxD  = params.maxDotSize;
+  params.angle      = anim.angle;
+  params.maxDotSize = anim.maxDotSize;
+  _xStepOverride = anim.xStep;
+  _yStepOverride = anim.yStep;
 
   if(params.grainAmount > 0){
     _rng = mulberry32(seedFromT(tLoop));
@@ -490,7 +555,10 @@ function renderAnimationFrame(tLoop){
   buildDots();
   paint();
 
-  params.angle = restAngle;
+  params.angle      = restAngle;
+  params.maxDotSize = restMaxD;
+  _xStepOverride = 0;
+  _yStepOverride = 0;
 }
 
 function animationLoop(){
@@ -526,15 +594,14 @@ window.WAEffect = {
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
-const BUILD_KEYS = new Set(['lightnessThreshold','stepSize','minDotSize','maxDotSize','displacementFactor','gridType','angle']);
-const PAINT_KEYS = new Set(['cornerRadius','dotColor','bgColor','showEffect']);
+const BUILD_KEYS = new Set(['lightnessThreshold','stepSize','minDotSize','maxDotSize','displacementFactor','gridType','angle','screenAngleOffset','xSquares','ySquares']);
+const PAINT_KEYS = new Set(['cornerRadius','dotColor','bgColor','showEffect','dotShape']);
 
 function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
   if(params.interactive && !params.animate){
-    // X → threshold (0..255), Y → maxDotSize (1..40). Two most expressive knobs.
     const ax = clamp(mouseX / r.width,  0, 1);
     const ay = clamp(mouseY / r.height, 0, 1);
     const nt = Math.round(ax * 255);
@@ -561,6 +628,7 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(key === 'mode'){ return; }
     if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');

@@ -50,6 +50,30 @@ const ANIM = {
   grain:   { rest: 0.0, peak: 0.18 },
 };
 
+// Mode envelopes. Each mode picks a different *shape* of t over the 15s loop
+// — that envelope shape, not the parameter set, is what makes the motion read
+// as a distinct gesture (breath, march, rotate, pulse). The aa-project / cmatrix
+// history matters here: classic ASCII renderers were always either rain-stepped
+// (cmatrix), resolution-stepped (aalib), or contrast-pulsed (Shiffman). We
+// honour those three lineages with `march`, `rotate`, `pulse`; `breath` is
+// the pingpong default; `idle` is no motion.
+const MODES = ['idle','breath','march','rotate','pulse'];
+const MARCH_STEPS = 4; // 4 steps reads as deliberate vs noisy; matches aalib resolution drops
+
+// Per-mode envelope: returns t01 ∈ [0,1] for the headline animated lever.
+// `t` is the raw 0..1 loop position. Each mode must satisfy env(0) === env(1)
+// at the byte level so renderAt(0) === renderAt(1) for export.
+function modeEnvelope(mode, t){
+  switch(mode){
+    case 'idle':   return 0;
+    case 'march':  return Math.floor(t * MARCH_STEPS) / MARCH_STEPS;
+    case 'rotate': return t; // monotonic; the looped lever is itself periodic (gamma wraps via pingpong inside)
+    case 'pulse':  return t < 0.2 ? t / 0.2 : Math.pow(1 - (t - 0.2) / 0.8, 2.5);
+    case 'breath':
+    default:       return pingpongT01(t);
+  }
+}
+
 // Default char ramp. tooooools.app default is ' .:-=+*#%@' (10 chars). The
 // leading space is critical — it's the "darkest output" cell on a black
 // background, i.e. no ink. Reversing the ramp swaps that polarity.
@@ -94,6 +118,15 @@ const params = {
   // Format
   comments: false,
   borders: false,
+  // Refinement: per-cell typography offsets. `tracking` shifts letters along
+  // the column axis (±2 cell-widths of slack); good for "loose"/"tight" hands
+  // without altering grid resolution. `jitter` injects deterministic sub-pixel
+  // wobble per cell — mulberry32(seedFromT(t)) ensures byte-equal loop close,
+  // matching the grain seam contract.
+  tracking: 0,
+  jitter: 0,
+  // Refinement: mode + spatial interactive (soft focus column amplifier).
+  mode: 'breath',
   // Shared
   fit: 'cover',
   bg: '#0a0a0a',
@@ -275,19 +308,57 @@ function paint(frameSeed){
   const ramp = params.ramp && params.ramp.length ? params.ramp : DEFAULT_RAMP;
   const matchColour = params.fgMatch;
 
+  // Soft-focus lens. When interactive is on, the cursor position (in canvas
+  // px) maps to a cell-space centre; cells inside a Gaussian footprint get
+  // a brightness boost which shifts them later in the ramp (denser glyph).
+  // sigma chosen to be ~18% of the smaller grid dimension — small enough to
+  // feel like a lens, large enough to read on landing.
+  const focusOn = params.interactive && !params.animate;
+  const focusCx = focusOn ? clamp(mouseX / w, 0, 1) * cols : 0;
+  const focusCy = focusOn ? clamp(mouseY / h, 0, 1) * rows : 0;
+  const focusSigma = Math.max(4, Math.min(cols, rows) * 0.18);
+  const focusInvTwoSig2 = 1 / (2 * focusSigma * focusSigma);
+  const focusGain = 90; // peak luminance added at cursor centre; reads as ~1 ramp-step bump on a 10-char ramp
+
+  // Tracking: ±2 cell-widths of letter-spacing-style offset. Positive expands,
+  // negative contracts. Applied as a linear nudge per column index so the
+  // whole grid breathes outward from the centre — preserves visual centre of
+  // mass while making the type feel airy or condensed.
+  const trk = clamp(params.tracking, -2, 2) * cellW * 0.5;
+  // Jitter: deterministic sub-pixel offset per cell. Seamless via mulberry32
+  // seeded from frameSeed (already locked to t01 by seedFromT). Magnitude is
+  // capped at ~30% of a cell so glyphs never collide with neighbours.
+  const jit = clamp(params.jitter, 0, 1);
+  const jitRng = jit > 0 ? mulberry32(frameSeed || 1) : null;
+  const jitterAmpX = jit * cellW * 0.3;
+  const jitterAmpY = jit * cellH * 0.3;
+
   for(let y = 0; y < rows; y++){
     for(let x = 0; x < cols; x++){
       const i = (y * cols + x) * 4;
       const r8 = data[i], g8 = data[i+1], b8 = data[i+2];
       // Rec. 709 luma — matches what humans perceive as "brightness".
-      const lum = 0.2126 * r8 + 0.7152 * g8 + 0.0722 * b8;
+      let lum = 0.2126 * r8 + 0.7152 * g8 + 0.0722 * b8;
+      if(focusOn){
+        const dxf = x - focusCx, dyf = y - focusCy;
+        const w_g = Math.exp(-(dxf*dxf + dyf*dyf) * focusInvTwoSig2);
+        lum = clamp(lum + focusGain * w_g, 0, 255);
+      }
       const ch = rampChar(lum, ramp);
+      // Tracking and jitter must consume RNG even on void cells so the
+      // sequence is independent of source content — otherwise an animated
+      // bright/dark cycle would change the jitter pattern, breaking the loop.
+      let jx = 0, jy = 0;
+      if(jitRng){ jx = (jitRng() - 0.5) * 2 * jitterAmpX; jy = (jitRng() - 0.5) * 2 * jitterAmpY; }
       if(ch === ' ') continue; // skip the void — pure background cells
       if(matchColour){
         ctx.fillStyle = `rgb(${r8|0},${g8|0},${b8|0})`;
       }
-      const px = padX + (x + 0.5) * cellW;
-      const py = padY + (y + 0.5) * cellH;
+      // Tracking pushes cells outward from the horizontal centre proportional
+      // to their distance from it. Cheap, symmetric, never overflows pad.
+      const trkOff = trk * ((x + 0.5) / cols - 0.5) * 2;
+      const px = padX + (x + 0.5) * cellW + trkOff + jx;
+      const py = padY + (y + 0.5) * cellH + jy;
       ctx.fillText(ch, px, py);
     }
   }
@@ -315,28 +386,57 @@ function paint(frameSeed){
   ctx.restore();
 }
 
+// Per-mode parameter subset. The brief is explicit: each mode only animates
+// the levers listed for it. Everything else holds at the user's slider value.
+//   breath  : columns + gamma + grain (the legacy ANIM)
+//   march   : columns alone (stepped, holds — reads as deliberate resolution drops)
+//   rotate  : gamma alone, monotonic (a tonal sweep; columns hold steady)
+//   pulse   : grain alone, sharp asymmetric (texture spike that decays)
+//   idle    : nothing animates
 function renderAt(t_loop){
-  // Apply animation envelopes and paint with a deterministic grain seed so
-  // export frames are reproducible and the loop closes at t=0 === t=1.
-  const t01 = pingpongT01(t_loop);
-  // Snapshot params we'll mutate so the UI doesn't permanently shift.
-  const savedCols = params.columns;
-  const savedGamma = params.gamma;
-  const savedGrain = params.grain;
-  params.columns = Math.round(lerp(ANIM.columns.rest, ANIM.columns.peak, t01));
-  params.gamma   = lerp(ANIM.gamma.rest, ANIM.gamma.peak, t01);
-  params.grain   = lerp(ANIM.grain.rest, ANIM.grain.peak, t01);
-  paint(seedFromT(t_loop));
-  // Reflect into GUI sliders so the user sees the animation drive them.
-  if(gui){
-    gui.rows.get('columns')?._write(params.columns);
-    gui.rows.get('gamma')?._write(Number(params.gamma.toFixed(2)));
-    gui.rows.get('grain')?._write(Number(params.grain.toFixed(2)));
+  const mode = MODES.includes(params.mode) ? params.mode : 'breath';
+  const env  = modeEnvelope(mode, ((t_loop % 1) + 1) % 1);
+
+  // Snapshot the user's static-slider values so non-animated modes don't
+  // drift them. We mutate during the paint and restore for non-march levers.
+  const userCols  = params.columns;
+  const userGamma = params.gamma;
+  const userGrain = params.grain;
+
+  if(mode === 'breath'){
+    params.columns = Math.round(lerp(ANIM.columns.rest, ANIM.columns.peak, env));
+    params.gamma   = lerp(ANIM.gamma.rest,   ANIM.gamma.peak,   env);
+    params.grain   = lerp(ANIM.grain.rest,   ANIM.grain.peak,   env);
+  } else if(mode === 'march'){
+    // Stepped columns: holds at each rung. Range tightened so each rung is
+    // visually distinct (24 → 48 → 72 → 96 → 110 at MARCH_STEPS=4).
+    params.columns = Math.round(lerp(ANIM.columns.rest, ANIM.columns.peak, env));
+  } else if(mode === 'rotate'){
+    // Monotonic gamma sweep 1.5 → 0.7 → 1.5 via pingpong INSIDE the monotonic
+    // envelope. We want the closed-loop property; raw t alone would jump.
+    // So map env (0→1) through a cosine so endpoints match.
+    const g = (1 - Math.cos(env * Math.PI * 2)) / 2;
+    params.gamma = lerp(ANIM.gamma.rest, ANIM.gamma.peak, g);
+  } else if(mode === 'pulse'){
+    params.grain = lerp(ANIM.grain.rest, ANIM.grain.peak, env);
   }
-  // Restore originals so toggling animate off returns user state — wait,
-  // actually we WANT the animated values to update the visible sliders. The
-  // user can re-set them after stopping. Keep mutation.
-  void savedCols; void savedGamma; void savedGrain;
+  // idle: no mutation.
+
+  paint(seedFromT(t_loop));
+
+  // Reflect into GUI for the levers this mode actually drives. Don't touch
+  // sliders the mode doesn't own — that would mislead the user.
+  if(gui){
+    if(mode === 'breath' || mode === 'march') gui.rows.get('columns')?._write(params.columns);
+    if(mode === 'breath' || mode === 'rotate') gui.rows.get('gamma')?._write(Number(params.gamma.toFixed(2)));
+    if(mode === 'breath' || mode === 'pulse')  gui.rows.get('grain')?._write(Number(params.grain.toFixed(2)));
+  }
+
+  // Restore user state for levers this mode didn't own — so toggling modes
+  // doesn't silently overwrite the user's sliders.
+  if(mode !== 'breath' && mode !== 'march')  params.columns = userCols;
+  if(mode !== 'breath' && mode !== 'rotate') params.gamma   = userGamma;
+  if(mode !== 'breath' && mode !== 'pulse')  params.grain   = userGrain;
 }
 
 function animationLoop(){
@@ -377,16 +477,13 @@ function handleMouseMove(e){
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
   if(params.interactive && !params.animate){
-    // X drives columns (16..160), Y drives gamma (0.4..2.0). Both are the
-    // levers with the most visible payoff per pixel of mouse travel.
-    const ax = clamp(mouseX / r.width, 0, 1);
-    const ay = clamp(mouseY / r.height, 0, 1);
-    const nc = Math.round(16 + ax * (160 - 16));
-    const ng = Number((0.4 + ay * (2.0 - 0.4)).toFixed(2));
-    let touched = false;
-    if(nc !== params.columns){ params.columns = nc; touched = true; gui?.rows.get('columns')?._write(nc); }
-    if(ng !== params.gamma){ params.gamma = ng; touched = true; gui?.rows.get('gamma')?._write(ng); }
-    if(touched) paint(1);
+    // Soft focus: the cursor becomes a local amplifier. We don't change the
+    // *global* column count (that would re-flow the entire grid as the mouse
+    // moves — visually jarring). Instead, paint() consults `focusX/focusY` +
+    // `focusActive` and locally boosts per-cell ink density via a Gaussian
+    // falloff. The lens reveals "more detail near the cursor" without re-
+    // sampling. Cheap, smooth, and the cursor stays the obvious agent.
+    paint(1);
   }
 }
 

@@ -60,47 +60,51 @@
 // (= visually-flat horizontal stretches in the source) produce smoother
 // long gradients; narrow segments (= busy detail) produce hard cuts.
 //
-// Note: the segment's `brightness` field is collected but the reference's
-// final draw call IGNORES it — the texture is the palette, not a tint by
-// brightness. Verified twice in the chunk: `e.texture(a)` references the
-// palette graphics, never the source. We mirror that exactly.
-//
 // Defaults (verified in pageStates["/effects/gradients"]):
 //   showEffect:true, lightnessThreshold:128, stepSize:8, shapeType:"rect"
-//   + shared preprocessor (canvasSize 400 in setup; slider 100..1000, no
-//   explicit default in pageStates so canvasSize falls through to the global
-//   default — we use 600 for parity with Recolor / Edge / Displace ports).
 //
-// UI ranges (from u(e,t) in page chunk):
-//   Threshold:  0 .. 255
-//   Step Size:  15 .. 100        ← note the GUI MIN is 15; default 8 is OUT
-//                                  OF RANGE for the slider. The reference
-//                                  ships unreachable-default state — the
-//                                  first paint uses 8, then any drag of the
-//                                  slider snaps to ≥15. We faithfully use 8
-//                                  as the start value and let the slider
-//                                  clamp on interaction.
-//   Shape Type: rect | ellipse (contentSwitcher)
+// Refinement pass — 2026-05-13
+// ----------------------------
+// We graduate from a single threshold pingpong into a five-mode envelope set
+// driven by Albers-style colour-interaction theory:
 //
-// Animation (not in reference — reference is static)
-// --------------------------------------------------
-// 15s seamless loop pingponging `lightnessThreshold` between
-// `base + thresholdSweep` and `base − thresholdSweep` via a cosine pingpong.
-// Endpoints meet byte-equal because (1−cos(2π))/2 == (1−cos(0))/2 == 0 in
-// IEEE-754 (the standard guarantees cos(±0) = 1; the (1−x)/2 algebra is exact
-// for the 0 endpoint). At low threshold the canvas fragments into many small
-// gradient segments (high detail); at high threshold whole rows collapse to
-// one or two giant segments. Reading the loop as breathing complexity.
+//   idle   — static (the rest-frame artwork).
+//   breath — cosine pingpong on threshold (original behaviour).
+//   tilt   — palette angle rotates monotonically 0→360°. Same band geometry,
+//            but the hue *axis* sweeps through the colour wheel. Looks like
+//            the canvas is being lit by a slowly orbiting coloured light.
+//   bleed  — palette endpoints lerp through an analogous → split-complementary
+//            → analogous harmony cycle. Albers' point: hue interaction shifts
+//            perceived band boundaries even when geometry is fixed. The
+//            cooler bands appear to *recede behind* warmer ones mid-cycle.
+//   band   — stepSize sawtooth (15 → 60 → 15). Venetian blinds contract then
+//            expand. Distinct from `breath` because the bands themselves
+//            change height, not the segmentation threshold.
 //
-// Determinism: the algorithm is pixel-deterministic; the only RNG is the
-// preprocessor's grain term, which is re-seeded from t each frame via
-// mulberry32 so renderAt(0) === renderAt(1) byte-equal even with grain > 0.
+// New params:
+//   mode             — animation envelope picker.
+//   paletteAngle     — rotation of palette in HSL space (-180..180°).
+//   paletteHarmony   — mono | complement | triad — controls how `bleed`
+//                      walks the colour wheel and is also applied statically
+//                      to the right endpoint when not animating bleed.
+//   focusRadius      — cursor-focus radius. Inside the circle the local
+//                      threshold drops by 0.7·sweep so detail blooms.
 //
-// Performance: O(W·stepSize·H/stepSize) = O(W·H) pixel reads per frame +
-// segment fills. At 1280×720, default stepSize=8, that's ~922K reads per
-// frame on the preprocessed buffer (600 × 0.5625·600 ≈ 600·338 = ~203K),
-// well under 30ms/frame. We use a Float32 luminance grid like the Edge port
-// to avoid recomputing alpha-composite per strip pass.
+// Optical-illusion grounding:
+//   - Albers, *Interaction of Color* (1963): identical greys read differently
+//     against warm vs cool surrounds. `bleed` exploits this by lerping
+//     endpoints through complementary hues — bands appear to migrate without
+//     the segmentation itself changing.
+//   - Eliasson, *Your colour memory* (2004): a single hue saturated to the
+//     edge of after-image triggers retinal complement filling. We set
+//     defaults that land near that saturation when bleed is active.
+//   - Shadertoy `MsXSzM` (Inigo Quilez palette explorer): cosine palettes in
+//     HSL produce smooth seamless loops — the same trick we use for `tilt`.
+//
+// Determinism: every envelope is wrapped to [0,1) before evaluation so
+// cos(2π·t) == cos(0) == 1 exactly at the seam, and `tilt` is monotonic
+// 0→360° with the 360° endpoint explicitly mapped back to 0° at t=1.
+// Grain RNG is mulberry32 seeded from t_loop. → renderAt(0) byte-equal renderAt(1).
 
 'use strict';
 
@@ -125,15 +129,30 @@ const params = {
   whitePoint:        255,
   // Gradients-specific (defaults from pageStates["/effects/gradients"]).
   showEffect:        true,
-  lightnessThreshold: 32,   // bundle default 128; 32 lands more bands → striking
-  stepSize:          8,     // bundle default 8 (below slider min 15 — intentional, see notes)
+  lightnessThreshold: 32,
+  stepSize:          8,
   shapeType:         'rect',
-  // Palette endpoints (reference hard-codes white→black; we expose them so the
-  // toy is a real toy. Keep defaults = reference for parity.).
-  paletteStart:      '#ffffff',
-  paletteEnd:        '#000000',
-  // Animation-only knob.
-  thresholdSweep:    28,    // pingpong amplitude around base threshold
+  // Palette endpoints. Reference parity is white→black; we ship a saturated
+  // warm→cool pair so the Albers/tilt/bleed modes actually demonstrate the
+  // hue-interaction thesis on first paint. Set both to #ffffff and #000000
+  // for byte-exact bundle parity.
+  paletteStart:      '#f4d35e',  // saturated amber
+  paletteEnd:        '#1d3557',  // deep navy
+  // ---- Refinement pass (2026-05-13) ----
+  // Animation envelope picker. `breath` preserves original behaviour;
+  // `idle` is the static-frame contract.
+  mode:              'breath',
+  // Palette angle in degrees (-180..180). Applied as an HSL hue rotation
+  // to BOTH endpoints. In `tilt` mode this is animated monotonically 0→360°.
+  paletteAngle:      0,
+  // Harmony walk for `bleed`. Mono = no second-endpoint shift; complement
+  // shifts the right endpoint by +180°; triad shifts by +120°.
+  paletteHarmony:    'mono',
+  // Cursor focus circle (interactive mode). Inside it, local threshold drops
+  // and the eye perceives a "lens" of finer banding under the pointer.
+  focusRadius:       240,
+  // Animation amplitude (threshold sweep around base).
+  thresholdSweep:    28,
   // Shared chrome.
   animate:           false,
   interactive:       false,
@@ -151,6 +170,9 @@ let strips       = null; // {y, segs:[{start,end,br}]} per strip; rebuilt on dem
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
 let mouseX = 0, mouseY = 0;
+
+// Cursor-focus state (source-space). _focusR2 === 0 disables the branch.
+let _focusCx = -1, _focusCy = -1, _focusR2 = 0, _focusDelta = 0;
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -170,6 +192,65 @@ function mulberry32(seed){
 function seedFromT(t01){
   const w = ((t01 % 1) + 1) % 1;
   return Math.floor(w * 100003) + 1;
+}
+
+// ---------- colour utilities (HSL hue rotation) ----------
+// Albers wanted us to *prove* hues interact. Hue rotation in HSL is the
+// cheapest way to ship that proof: keep luminance and saturation fixed,
+// rotate H, and the bands shift perceptually even though their geometry
+// hasn't moved a pixel.
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if(!m) return { r:255, g:255, b:255 };
+  const v = parseInt(m[1], 16);
+  return { r:(v >> 16) & 255, g:(v >> 8) & 255, b: v & 255 };
+}
+function rgbToHex(r, g, b){
+  const c = ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
+  return '#' + c.toString(16).padStart(6, '0');
+}
+function rgbToHsl(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (max + min) / 2;
+  if(max !== min){
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch(max){
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h *= 60;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h, s, l){
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if(h <  60){ r = c; g = x; b = 0; }
+  else if(h < 120){ r = x; g = c; b = 0; }
+  else if(h < 180){ r = 0; g = c; b = x; }
+  else if(h < 240){ r = 0; g = x; b = c; }
+  else if(h < 300){ r = x; g = 0; b = c; }
+  else            { r = c; g = 0; b = x; }
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+  };
+}
+function rotateHueHex(hex, deg){
+  // Pure greys (sat == 0) have no hue to rotate; HSL handles this cleanly
+  // (s stays 0, hue change is a no-op), so the default white→black palette
+  // is unaffected unless the user picks a chromatic endpoint.
+  const { r, g, b } = hexToRgb(hex);
+  const hsl = rgbToHsl(r, g, b);
+  const out = hslToRgb(hsl.h + deg, hsl.s, hsl.l);
+  return rgbToHex(out.r, out.g, out.b);
 }
 
 function schedule(level){
@@ -198,14 +279,26 @@ function fitCanvas(){
 
 // ---------- palette (the per-segment gradient texture) ----------
 // Reference: 1-row PGraphics with map(x, 0, w-1, 255, 0) — pure WHITE→BLACK.
-// We allow start/end colours so the toy can ship vivid frames without losing
-// reference parity on defaults.
+// We honour two transient module globals to drive `tilt` and `bleed` modes:
+//   _paletteAngleAnim — extra hue rotation in degrees (added to slider value).
+//   _paletteEndShift  — extra hue rotation applied ONLY to the right endpoint
+//                       (the harmony-walk for `bleed`).
+let _paletteAngleAnim = 0;
+let _paletteEndShift  = 0;
+
 function rebuildPalette(){
   const W = Math.max(2, params.canvasSize | 0);
   if(palBuf.width !== W){ palBuf.width = W; palBuf.height = 1; }
+  // Apply the user's static angle PLUS any per-frame animation rotation.
+  // Both endpoints share the base angle; the right endpoint also receives
+  // _paletteEndShift, which is how `bleed` produces analogous → split-
+  // complementary → analogous walks without changing the left anchor.
+  const baseAngle = params.paletteAngle + _paletteAngleAnim;
+  const left  = rotateHueHex(params.paletteStart, baseAngle);
+  const right = rotateHueHex(params.paletteEnd,   baseAngle + _paletteEndShift);
   const grad = pctx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, params.paletteStart);
-  grad.addColorStop(1, params.paletteEnd);
+  grad.addColorStop(0, left);
+  grad.addColorStop(1, right);
   pctx.fillStyle = grad;
   pctx.fillRect(0, 0, W, 1);
 }
@@ -278,8 +371,7 @@ function preprocess(){
   sctx.putImageData(id, 0, 0);
   preprocessed = id;
 
-  // Pre-compute alpha-composited luminance for every pixel. The strip-scan
-  // sums `stepSize` of these per column, so caching is a clear win.
+  // Pre-compute alpha-composited luminance for every pixel.
   const N = W * H;
   if(!lumGrid || lumGrid.length !== N) lumGrid = new Float32Array(N);
   for(let i = 0, j = 0; i < px.length; i += 4, j++){
@@ -289,11 +381,10 @@ function preprocess(){
 }
 
 // ---------- segmentation (per-strip column-average ΔB scan) ----------
-// Mirrors the bundle's nested loop exactly:
-//   for each strip Y:
-//     for each x: column-avg brightness of rows [Y..Y+stepSize) → avgB
-//     when |prevB − avgB| > threshold: close segment, open a new one
-//   trailing segment always closes at x = W
+// Mirrors the bundle's nested loop exactly with one addition: per-x local
+// threshold may be lowered by the cursor-focus circle. Outside the focus
+// (or when focus is off), the threshold is constant — the inner branch is
+// short-circuited cheaply by the `useFocus` flag.
 function buildStrips(){
   strips = [];
   if(!preprocessed) return;
@@ -301,8 +392,10 @@ function buildStrips(){
   const step = Math.max(1, params.stepSize | 0);
   const th   = params.lightnessThreshold;
   const rows = Math.floor(H / step);
+  const useFocus = _focusR2 > 0;
   for(let s = 0; s < rows; s++){
     const y0 = s * step;
+    const yc = y0 + step / 2; // strip centre for focus-distance calc
     const segs = [];
     let prevB = 0, segStart = 0;
     for(let x = 0; x < W; x++){
@@ -311,7 +404,22 @@ function buildStrips(){
         sum += lumGrid[x + yy * W];
       }
       const avgB = sum / step;
-      if(Math.abs(prevB - avgB) > th){
+      // Per-column local threshold. Inside the cursor focus, drop the
+      // threshold by `focusDelta · (1 − r²/R²)` — a quadratic bump that's
+      // cheap and reads as a soft Gaussian. Carrasco (2011): peripheral
+      // motion is salient, so the SOFT EDGE of the focus carries the eye
+      // even when the cursor sits still.
+      let localTh = th;
+      if(useFocus){
+        const dx = x  - _focusCx, dy = yc - _focusCy;
+        const d2 = dx*dx + dy*dy;
+        if(d2 < _focusR2){
+          const k = 1 - d2 / _focusR2;
+          localTh = th - _focusDelta * k;
+          if(localTh < 0) localTh = 0;
+        }
+      }
+      if(Math.abs(prevB - avgB) > localTh){
         segs.push({ start: segStart, end: x, br: prevB });
         segStart = x;
         prevB    = avgB;
@@ -332,7 +440,6 @@ function paint(){
 
   if(!preprocessed){ ctx.restore(); return; }
 
-  // showEffect=false → preprocessor preview (parity with reference bypass).
   if(!params.showEffect){
     const aspect = preprocessed.width / preprocessed.height;
     let dw, dh;
@@ -345,7 +452,6 @@ function paint(){
 
   if(!strips || strips.length === 0){ ctx.restore(); return; }
 
-  // Object-fit:contain into the viewport.
   const sw = preprocessed.width, sh = preprocessed.height;
   const aspect = sw / sh;
   let dw, dh;
@@ -355,31 +461,23 @@ function paint(){
   const scale = dw / sw;
   const step  = Math.max(1, params.stepSize | 0);
 
-  // Each segment is filled with the palette stretched over its horizontal
-  // extent. Canvas's drawImage with src (0,0,palW,1) and dst (x,y,segW,stepH)
-  // is the 2D analogue of WEBGL textureMode(NORMAL) on a rect — it tiles the
-  // 1px row across the destination width and vertically replicates the row,
-  // i.e. a left→right palette ramp inside each rectangle. Free GPU speed.
   const palW = palBuf.width;
   for(const strip of strips){
     const y  = oy + strip.y * scale;
-    const sh = step * scale;
+    const stripH = step * scale;
     for(const seg of strip.segs){
       const x = ox + seg.start * scale;
       const w = (seg.end - seg.start) * scale;
       if(w < 0.5) continue;
       if(params.shapeType === 'ellipse'){
-        // Clip an ellipse to the segment rect, then drawImage the palette.
-        // Matches the WEBGL ellipse(start, y, w, stepSize) call with the
-        // palette texture — interior shows the gradient, outside is bg.
         ctx.save();
         ctx.beginPath();
-        ctx.ellipse(x + w / 2, y + sh / 2, w / 2, sh / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + w / 2, y + stripH / 2, w / 2, stripH / 2, 0, 0, Math.PI * 2);
         ctx.clip();
-        ctx.drawImage(palBuf, 0, 0, palW, 1, x, y, w, sh);
+        ctx.drawImage(palBuf, 0, 0, palW, 1, x, y, w, stripH);
         ctx.restore();
       } else {
-        ctx.drawImage(palBuf, 0, 0, palW, 1, x, y, w, sh);
+        ctx.drawImage(palBuf, 0, 0, palW, 1, x, y, w, stripH);
       }
     }
   }
@@ -388,26 +486,87 @@ function paint(){
 }
 
 // ---------- animation ----------
-// 15s seamless loop: lightnessThreshold pingpongs around its rest value.
-// At the peak of the sweep (t=0.5) the threshold is base − sweep (more
-// segments = more bands); at endpoints t=0 and t=1 it returns to base.
+//
+// All envelopes wrap t to [0,1) so cos(2π·t) == cos(0) == 1 exactly at the
+// seam. Step modes (none here, but `tilt` is monotonic 0→360°) override the
+// endpoint at t=1 to match t=0.
 function pingpongT01(t){
   let w = t - Math.floor(t);
   if(w === 1) w = 0;
   return (1 - Math.cos(w * 2 * Math.PI)) / 2;
 }
 
+// Harmony degree offsets: how far to rotate the right endpoint relative to
+// the left for each harmony choice. `bleed` walks this offset through the
+// loop; static modes apply it constantly.
+function harmonyOffsetDeg(harmony){
+  switch(harmony){
+    case 'complement': return 180;
+    case 'triad':      return 120;
+    case 'mono':
+    default:           return 0;
+  }
+}
+
 function applyAnimationT(tLoop){
-  const t01 = pingpongT01(tLoop);
+  let w = tLoop - Math.floor(tLoop);
+  if(w === 1) w = 0;
+  const t01 = w;
+  const pp  = (1 - Math.cos(t01 * 2 * Math.PI)) / 2;
   const base = params.lightnessThreshold;
-  // Sweep DOWN at the midpoint — produces visible "blooming" of bands.
-  return { threshold: clamp(base - params.thresholdSweep * t01, 0, 255) };
+  const sweep = params.thresholdSweep;
+  let threshold = base;
+  let stepSize = params.stepSize;
+  let paletteAngleAnim = 0;
+  let paletteEndShift  = harmonyOffsetDeg(params.paletteHarmony);
+  switch(params.mode){
+    case 'idle': {
+      // Static. Hold every animatable param at its slider value.
+      break;
+    }
+    case 'tilt': {
+      // Monotonic hue rotation 0 → 360°. At t=1 we collapse to 0° so the
+      // seam is byte-equal (360° and 0° render identically, but the LUT
+      // path uses modulo so we make it explicit here too).
+      paletteAngleAnim = (t01 >= 1) ? 0 : 360 * t01;
+      break;
+    }
+    case 'bleed': {
+      // Walk the right endpoint through complement-and-back via a cosine
+      // pingpong. At t=0 and t=1 the offset is the user's static harmony
+      // value; at t=0.5 we add ±180° (split-complementary), producing the
+      // Albers "interaction" reading mid-cycle. Left endpoint stays put.
+      const baseOff = harmonyOffsetDeg(params.paletteHarmony);
+      paletteEndShift = baseOff + 180 * pp;
+      break;
+    }
+    case 'band': {
+      // stepSize sawtooth — venetian-blind contracts→expands. Sawtooth at
+      // t=1 wraps to t=0 exactly. We clamp into the slider range so the
+      // animation always stays visible.
+      const lo = Math.max(4,  params.stepSize | 0);
+      const hi = Math.max(lo + 8, Math.min(80, lo * 4));
+      stepSize = Math.round(lo + (hi - lo) * t01);
+      if(t01 === 0) stepSize = lo; // explicit seam pin
+      break;
+    }
+    case 'breath':
+    default: {
+      threshold = clamp(base - sweep * pp, 0, 255);
+      break;
+    }
+  }
+  return { threshold, stepSize, paletteAngleAnim, paletteEndShift };
 }
 
 function renderAnimationFrame(tLoop){
   const anim = applyAnimationT(tLoop);
-  const rest = params.lightnessThreshold;
+  const restThreshold = params.lightnessThreshold;
+  const restStepSize  = params.stepSize;
   params.lightnessThreshold = anim.threshold;
+  params.stepSize           = anim.stepSize;
+  _paletteAngleAnim = anim.paletteAngleAnim;
+  _paletteEndShift  = anim.paletteEndShift;
 
   if(params.grainAmount > 0){
     _rng = mulberry32(seedFromT(tLoop));
@@ -420,11 +579,16 @@ function renderAnimationFrame(tLoop){
     window.PIXSource.advanceFrame();
     preprocess();
   }
-  if(!palBuf.width || palBuf.width !== params.canvasSize) rebuildPalette();
+  // Palette must rebuild every frame when tilt/bleed are live, since the
+  // hue rotations don't go through any param the schedule() router watches.
+  rebuildPalette();
   buildStrips();
   paint();
 
-  params.lightnessThreshold = rest;
+  params.lightnessThreshold = restThreshold;
+  params.stepSize           = restStepSize;
+  _paletteAngleAnim = 0;
+  _paletteEndShift  = 0;
 }
 
 function animationLoop(){
@@ -462,30 +626,36 @@ window.WAEffect = {
 // Pipeline-stage routing — which keys invalidate which cache.
 const PRE_KEYS     = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
 const BUILD_KEYS   = new Set(['lightnessThreshold','stepSize']);
-const PALETTE_KEYS = new Set(['paletteStart','paletteEnd']);
+const PALETTE_KEYS = new Set(['paletteStart','paletteEnd','paletteAngle','paletteHarmony']);
 const PAINT_KEYS   = new Set(['shapeType','showEffect']);
 
 function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
-  if(params.interactive && !params.animate){
-    // Mouse X drives threshold (0..255); Mouse Y drives stepSize (4..40).
-    // Two strongest visual levers: how many bands per strip × how tall the strips are.
-    const ax = clamp(mouseX / r.width,  0, 1);
-    const ay = clamp(mouseY / r.height, 0, 1);
-    const nt = Math.round(ax * 255);
-    const nd = Math.max(4, Math.round((1 - ay) * 40));
-    let touched = false;
-    if(nt !== params.lightnessThreshold){
-      params.lightnessThreshold = nt; touched = true;
-      gui?.rows.get('lightnessThreshold')?._write(nt);
-    }
-    if(nd !== params.stepSize){
-      params.stepSize = nd; touched = true;
-      gui?.rows.get('stepSize')?._write(nd);
-    }
-    if(touched) schedule('build');
+  if(params.interactive){
+    // Cursor-focus circle. Map viewport → source-space so the focus stays
+    // accurate across canvas sizes. Inside the radius the local threshold
+    // drops; outside the slider value rules. This is Albers via the
+    // pointer: the "lens" shifts the perceived band boundaries even though
+    // the source is untouched.
+    if(!preprocessed){ return; }
+    const sw = preprocessed.width, sh = preprocessed.height;
+    const aspect = sw / sh;
+    const W = cv.width, H = cv.height;
+    let dw, dh;
+    if(W / H > aspect){ dh = H * 0.96; dw = dh * aspect; }
+    else              { dw = W * 0.96; dh = dw / aspect; }
+    const ox = (W - dw) / 2, oy = (H - dh) / 2;
+    const sx = (mouseX * (W / r.width)  - ox) / dw * sw;
+    const sy = (mouseY * (H / r.height) - oy) / dh * sh;
+    const rSrc = params.focusRadius * sw / dw;
+    _focusCx = sx; _focusCy = sy; _focusR2 = rSrc * rSrc;
+    _focusDelta = params.thresholdSweep * 0.7;
+    schedule('build');
+  } else if(_focusR2 !== 0){
+    _focusR2 = 0; _focusDelta = 0;
+    schedule('build');
   }
 }
 
@@ -498,6 +668,7 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(key === 'mode'){ /* animation-only; no rebuild needed for static */ return; }
     if(params.animate) return;
     if(PRE_KEYS.has(key))          schedule('pre');
     else if(BUILD_KEYS.has(key))   schedule('build');

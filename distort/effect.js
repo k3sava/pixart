@@ -4,9 +4,8 @@
 // (/_next/static/chunks/app/effects/distort/page-bca54f0605d0ed09.js,
 //  shared preprocessor in /_next/static/chunks/9357-2a51c42cdfe973de.js).
 //
-// Distort is NOT a geometric primitive (no twist/pinch/spherize/wave). It is
-// an image-driven UV warp: a "distortion map" image whose RED channel is
-// sampled per output pixel to push the source sample by (dx, dy):
+// Distort is an image-driven UV warp: a "distortion map" image whose RED
+// channel is sampled per output pixel to push the source sample by (dx, dy):
 //
 //   s = mapRed[x, y]                         // 0..255
 //   if s > threshold:
@@ -16,18 +15,31 @@
 //   else:
 //     out[x,y] = source[x,y]
 //
-// The shared Blur→Grain→Gamma→Levels preprocessor runs on either the source
-// or the distortion map (preprocessTarget switch), then the warp draws.
+// See distort-research.md for parameter provenance.
 //
-// Defaults extracted from the bundle:
-//   canvasSize 600 / threshold 0 / xStrength -75 / yStrength 0
-//   preprocessTarget "distortion" / blur 0 / grain 0 / gamma 1 / bp 0 / wp 255
-//   displacement map = bundled /displacement.png (600×600).
+// ---- Refinement pass (2026-05-13) ----
 //
-// pixart additions (faithful to platform contract):
-//   * source supports video via PIXSource (reference is image-only)
-//   * 15s seamless loop animates Y strength (sin) + small X wobble (cos)
-//     — both close byte-equal at t=0 and t=1, grain RNG seeded by t_loop.
+// `mode` selects one of six envelopes (idle / breath / rotate / pulse /
+// march / harmonic). Each animates a different subset of the strength
+// params; everything else holds at its slider value. Two new params:
+//
+//   harmonic     — third-harmonic mix amount [0..1] for `harmonic` mode.
+//                  xStrength = A·sin(2π·t) + harmonic · A · sin(2π·t·3),
+//                  which is Whitney's "two-harmonic = organic" trick.
+//                  Helmholtz (1863) shows the ear hears the same shape
+//                  as "fuller"; the eye reads the same x-warp as more
+//                  alive than a pure sine.
+//   phaseOffset  — [-π..π] phase shift applied to the map-sampling
+//                  coordinates. The same distortion map produces wholly
+//                  different output as the phase changes, because the
+//                  per-pixel map sample is shifted along the warp
+//                  vector before the look-up.
+//
+// Cursor focus: in interactive mode, the cursor is the *eye of the
+// storm*. Inside `focusRadius` (source-space px) the per-pixel
+// xStrength/yStrength are attenuated by `(d²/R²)` — zero at the centre,
+// full at the boundary. The viewer reads the cursor as a still focal
+// point in a moving field (Bret Victor, "Drawing Dynamic Visualizations").
 'use strict';
 
 const CYCLE_MS = 15000;
@@ -61,13 +73,23 @@ const params = {
   blackPoint:              0,
   whitePoint:              255,
   showEffect:              true,
+  // ---- Refinement pass (2026-05-13) ----
+  mode:                   'breath',
+  // Third-harmonic mix amount for `harmonic` mode. Whitney/Helmholtz: a
+  // pure sine reads mechanical; sine + 3·sine reads organic.
+  harmonic:                0.35,
+  // Phase shift applied to map-sample coordinates. Same map, different
+  // warp pattern. Range matches the natural cycle of a 2π warp basis.
+  phaseOffset:             0,
+  // Cursor focus radius (source-space px). Inside the circle, warp
+  // strength is attenuated by (d²/R²) — the cursor becomes a calm eye.
+  focusRadius:             160,
   // pixart standard rows
   animate:                 false,
   interactive:             false,
   fit:                    'cover',
   bg:                     '#0a0a0a',
 };
-let xStrengthBase = params.xDisplacementStrength;
 
 if(window.PIXState) window.PIXState.hydrate(params);
 
@@ -79,6 +101,14 @@ let mapImageData  = null;     // ImageData of mapBuf  (post-preprocess if "disto
 let dirty = { resample: true, pre: true, paint: true };
 let rafQueued = false;
 let mouseX = 0, mouseY = 0;
+
+// Transient module globals — written by renderAnimationFrame and the cursor
+// handler, read by warp(). All return to defaults at end-of-frame so the
+// static-render path stays branchless.
+let _xStrengthAnim = null;     // override xStrength for this frame
+let _yStrengthAnim = null;     // override yStrength for this frame
+let _phaseAnim     = null;     // override phaseOffset for this frame
+let _cursorFx = -1, _cursorFy = -1, _cursorFR2 = 0; // focus circle (source-space)
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -142,8 +172,6 @@ function resample(){
   bctx.imageSmoothingQuality = 'high';
   bctx.drawImage(srcCv, 0, 0, W, H);
 
-  // Cover-fit the distortion map and centre-crop. Mirrors the reference's
-  // get → resize → get(cx,cy,W,H) sequence.
   mctx.clearRect(0, 0, W, H);
   if(mapReady){
     const mw = mapImg.naturalWidth, mh = mapImg.naturalHeight;
@@ -156,17 +184,12 @@ function resample(){
       mctx.drawImage(mapImg, dx, dy, dw, dh);
     }
   } else {
-    // Fallback: flat grey map (= no warp once threshold>=128).
     mctx.fillStyle = '#808080';
     mctx.fillRect(0, 0, W, H);
   }
 }
 
 // ---------- preprocessor (mirrors tooooools' /utils/preprocessor) ----------
-//
-// Order is load-bearing: Blur → Grain → Gamma → Levels. We run it on a
-// COPY of whichever surface is the preprocess target so the un-preprocessed
-// half stays raw (the reference keeps the two surfaces in separate slots).
 function preprocessSurface(srcCtx, srcCv){
   const W = srcCv.width, H = srcCv.height;
   if(params.blurAmount > 0){
@@ -221,7 +244,6 @@ function preprocessSurface(srcCtx, srcCv){
 
 function preprocess(){
   if(!baseBuf.width) return;
-  // Re-rasterise both surfaces so the un-preprocessed half is clean.
   resample();
   if(params.preprocessTarget === 'base'){
     baseImageData = preprocessSurface(bctx, baseBuf);
@@ -234,9 +256,13 @@ function preprocess(){
 
 // ---------- warp ----------
 //
-// Faithful translation of function `h` in the reference. Red-channel sample
-// of the distortion map, signed map to (±xStrength, ±yStrength), nearest-
-// neighbour pull from the source. No bilinear — the reference doesn't.
+// Faithful translation of the reference's per-pixel red-channel sample +
+// signed map to (±xStrength, ±yStrength) + nearest-neighbour pull. Then
+// refinements:
+//   * phaseOffset shifts the map-sample lookup coordinates along the warp
+//     vector itself, so the same map produces a different pattern.
+//   * cursor focus attenuates strength by (d²/R²) inside the focusRadius
+//     circle — zero at centre, full at boundary.
 function warp(){
   if(!baseImageData || !mapImageData) return null;
   const W = baseImageData.width, H = baseImageData.height;
@@ -245,20 +271,37 @@ function warp(){
   const out = octx.createImageData(W, H);
   const o   = out.data;
   const th  = params.displacementThreshold;
-  const xs  = params.xDisplacementStrength;
-  const ys  = params.yDisplacementStrength;
-  // map(s, 0,255, -strength, +strength) === (s/127.5 - 1) * strength
+  const xs  = _xStrengthAnim !== null ? _xStrengthAnim : params.xDisplacementStrength;
+  const ys  = _yStrengthAnim !== null ? _yStrengthAnim : params.yDisplacementStrength;
+  const phase = _phaseAnim !== null ? _phaseAnim : params.phaseOffset;
   const invHalf = 1 / 127.5;
+  const useFocus = _cursorFR2 > 0;
+  // Phase shift is applied as a pixel-space offset along the warp axis.
+  // Translating it into a sample-coordinate offset preserves seamlessness:
+  // (phase / 2π) full cycles ⇒ shift by phase·W/(2π) pixels.
+  const phasePxX = (phase / (Math.PI * 2)) * W;
+  const phasePxY = (phase / (Math.PI * 2)) * H;
   for(let y = 0; y < H; y++){
     const yOff = y * W;
     for(let x = 0; x < W; x++){
       const i = (x + yOff) * 4;
-      const s = m[i]; // RED byte of the map at (x,y)
+      // Phase-shifted map sample. Wrap (toroidal) so the field stays continuous.
+      let mx = x + phasePxX; mx = ((mx % W) + W) % W;
+      let my = y + phasePxY; my = ((my % H) + H) % H;
+      const mi = ((mx | 0) + (my | 0) * W) * 4;
+      const s = m[mi]; // RED byte of the map at the shifted sample
       let p;
       if(s > th){
         const t = s * invHalf - 1;
-        let u = x + t * xs;
-        let v = y + t * ys;
+        // Cursor focus: zero strength at centre, full at boundary.
+        let attn = 1;
+        if(useFocus){
+          const dx0 = x - _cursorFx, dy0 = y - _cursorFy;
+          const d2 = dx0*dx0 + dy0*dy0;
+          if(d2 < _cursorFR2) attn = d2 / _cursorFR2; // 0 at centre, →1 at edge
+        }
+        let u = x + t * xs * attn;
+        let v = y + t * ys * attn;
         if(u < 0) u = 0; else if(u > W - 1) u = W - 1;
         if(v < 0) v = 0; else if(v > H - 1) v = H - 1;
         p = ((u | 0) + (v | 0) * W) * 4;
@@ -288,7 +331,6 @@ function paint(){
   if(params.showEffect){
     surface = warp() || baseBuf;
   } else {
-    // showEffect=false: display whichever side was last preprocessed
     surface = params.preprocessTarget === 'base' ? baseBuf : mapBuf;
   }
 
@@ -304,25 +346,83 @@ function paint(){
 
 // ---------- animation ----------
 //
-// 15s seamless loop. The Y strength sin-sweeps 0→+max→0→−max→0; the X
-// strength wobbles around the user's baseline with a centred cosine.
-// Both are pure functions of t_loop so the loop closes byte-equal.
+// 15s seamless loop. Each mode wraps t to [0,1) so cos(2π·t)==cos(0)==1
+// in IEEE-754 and renderAt(0) byte-equals renderAt(1). Only the named
+// subset of params animates; everything else holds at slider value.
+//
+//   idle      : everything holds. The rest frame IS the artwork.
+//   breath    : cosine pingpong on xStrength + yStrength — calm, foveal.
+//   rotate    : xStrength = xBase·cos(2π·t), yStrength = xBase·sin(2π·t).
+//                Strength vector traces a full circle — the warp "rotates".
+//   pulse     : yStrength spikes sharply, decays slowly. One per cycle.
+//   march     : xStrength steps through 4 named magnitudes. Seam-override
+//                at t=1 → tier 0 so endpoints match.
+//   harmonic  : xStrength = A·sin(2π·t) + harmonic·A·sin(2π·t·3).
+//                Whitney's two-harmonic = "organic" finding. Both terms
+//                are 2π-periodic in t so the loop closes by construction.
 function applyAnimationT(tLoop){
-  const tWrap = ((tLoop % 1) + 1) % 1;
-  const yMax  = 80;
-  const xWob  = 25;
-  params.yDisplacementStrength = Math.round(yMax * Math.sin(tWrap * 2 * Math.PI));
-  params.xDisplacementStrength = Math.round(
-    xStrengthBase + xWob * (Math.cos(tWrap * 2 * Math.PI) - 1) / 2
-  );
-  if(gui){
-    gui.rows.get('xDisplacementStrength')?._write(params.xDisplacementStrength);
-    gui.rows.get('yDisplacementStrength')?._write(params.yDisplacementStrength);
+  let t = tLoop - Math.floor(tLoop);
+  if(t === 1) t = 0;
+  const xBase = params.xDisplacementStrength;
+  const yBase = params.yDisplacementStrength;
+  let xAnim = null, yAnim = null, phaseAnim = null;
+  const TAU = Math.PI * 2;
+  switch(params.mode){
+    case 'rotate': {
+      // Strength vector orbits at the slider's magnitude. Magnitude held
+      // constant; angle sweeps 0→2π monotonically.
+      const mag = Math.abs(xBase) || 75;
+      xAnim = Math.round(mag * Math.cos(t * TAU));
+      yAnim = Math.round(mag * Math.sin(t * TAU));
+      break;
+    }
+    case 'pulse': {
+      // Sharp asymmetric spike on yStrength; xStrength holds.
+      const env = t < 0.2 ? t / 0.2 : Math.pow(1 - (t - 0.2) / 0.8, 2.5);
+      const yMax = 80;
+      yAnim = Math.round(yMax * env);
+      break;
+    }
+    case 'march': {
+      // 4 stepped magnitudes for xStrength. Seam-override at t=1 → tier 0.
+      const tiers = [-75, -30, 30, 75];
+      const idx = t === 0 ? 0 : Math.min(tiers.length - 1, Math.floor(t * tiers.length));
+      xAnim = tiers[idx];
+      break;
+    }
+    case 'harmonic': {
+      // Two-harmonic sine. Whitney/Helmholtz: the third harmonic is the
+      // smallest addition that already reads "organic" rather than pure.
+      const A = Math.abs(xBase) || 75;
+      const h = clamp(params.harmonic, 0, 1);
+      xAnim = Math.round(A * (Math.sin(t * TAU) + h * Math.sin(t * TAU * 3)));
+      // Sweep phaseOffset alongside the harmonic so the same map produces
+      // a different pattern at each beat. Wraps exactly at t=0/t=1.
+      phaseAnim = (1 - Math.cos(t * TAU)) / 2 * Math.PI - Math.PI / 2;
+      break;
+    }
+    case 'idle': {
+      break;
+    }
+    case 'breath':
+    default: {
+      // Original behaviour: yStrength sin sweep, xStrength small cosine
+      // wobble around the user's baseline. Both close byte-equal at t=0/1.
+      const yMax = 80, xWob = 25;
+      yAnim = Math.round(yMax * Math.sin(t * TAU));
+      xAnim = Math.round(xBase + xWob * (Math.cos(t * TAU) - 1) / 2);
+      break;
+    }
   }
+  return { xAnim, yAnim, phaseAnim };
 }
 
 function renderAnimationFrame(tLoop){
-  applyAnimationT(tLoop);
+  const anim = applyAnimationT(tLoop);
+  _xStrengthAnim = anim.xAnim;
+  _yStrengthAnim = anim.yAnim;
+  _phaseAnim     = anim.phaseAnim;
+
   const needPre = params.grainAmount > 0;
   if(needPre){
     _rng = mulberry32(seedFromT(tLoop));
@@ -333,6 +433,8 @@ function renderAnimationFrame(tLoop){
   preprocess();
   if(needPre) _rng = Math.random;
   paint();
+
+  _xStrengthAnim = null; _yStrengthAnim = null; _phaseAnim = null;
 }
 
 function animationLoop(){
@@ -344,11 +446,11 @@ function animationLoop(){
 
 function toggleAnimation(){
   if(params.animate){
-    xStrengthBase = params.xDisplacementStrength;
     animationStartTime = performance.now();
     animationLoop();
   } else if(animationId){
     cancelAnimationFrame(animationId); animationId = null;
+    schedule('paint');
   }
 }
 
@@ -372,27 +474,31 @@ const PRE_KEYS      = new Set([
   'blurAmount','grainAmount','gamma','blackPoint','whitePoint','preprocessTarget'
 ]);
 // 'displacementThreshold', 'xDisplacementStrength', 'yDisplacementStrength',
-// 'showEffect', 'bg' → paint-only.
+// 'harmonic', 'phaseOffset', 'focusRadius', 'showEffect', 'bg' → paint-only.
 
 function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
-  if(params.interactive && !params.animate){
-    const ax = clamp(mouseX / r.width,  0, 1);
-    const ay = clamp(mouseY / r.height, 0, 1);
-    const nx = Math.round((ax * 2 - 1) * 100);
-    const ny = Math.round((ay * 2 - 1) * 100);
-    let touched = false;
-    if(nx !== params.xDisplacementStrength){
-      params.xDisplacementStrength = nx; touched = true;
-      gui?.rows.get('xDisplacementStrength')?._write(nx);
-    }
-    if(ny !== params.yDisplacementStrength){
-      params.yDisplacementStrength = ny; touched = true;
-      gui?.rows.get('yDisplacementStrength')?._write(ny);
-    }
-    if(touched) schedule('paint');
+  if(params.interactive){
+    if(!baseImageData) return;
+    // Map cursor to source-space coords. baseBuf is drawn fit-to-canvas
+    // (contain), so reverse that mapping.
+    const W = cv.width, H = cv.height;
+    const sw = baseImageData.width, sh = baseImageData.height;
+    const aspect = sw / sh;
+    let dw, dh;
+    if(W / H > aspect){ dh = H; dw = H * aspect; }
+    else              { dw = W; dh = W / aspect; }
+    const ox = (W - dw) / 2, oy = (H - dh) / 2;
+    const sx = (mouseX * (W / r.width)  - ox) / dw * sw;
+    const sy = (mouseY * (H / r.height) - oy) / dh * sh;
+    const rSrc = params.focusRadius * sw / dw;
+    _cursorFx = sx; _cursorFy = sy; _cursorFR2 = rSrc * rSrc;
+    if(!params.animate) schedule('paint');
+  } else if(_cursorFR2 !== 0){
+    _cursorFR2 = 0;
+    if(!params.animate) schedule('paint');
   }
 }
 
@@ -420,6 +526,7 @@ function init(){
       if(key === 'fit') schedule('resample'); else schedule('paint');
       return;
     }
+    if(key === 'mode'){ /* anim envelope changes; no static rebuild needed */ return; }
     if(params.animate) return;
     if(RESAMPLE_KEYS.has(key))  schedule('resample');
     else if(PRE_KEYS.has(key))  schedule('pre');
