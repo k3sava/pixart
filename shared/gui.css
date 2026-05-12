@@ -1,0 +1,149 @@
+/* GUI panel — slider-based control surface. UI fonts + element styles follow
+   the global theme via --kami-font-* variables. Numeric inputs stay mono for
+   legibility. Canvas text rendering is independent (set inside each effect.js). */
+.wg{
+  position:fixed; top:54px; right:8px; width:304px;
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  color:var(--panel-text);
+  box-shadow:0 4px 18px rgba(0,0,0,0.12);
+  border-radius:4px;
+  font-family:var(--kami-font-body); font-size:12px;
+  z-index:9;
+  user-select:none;
+  transition:transform .22s cubic-bezier(.2,0,0,1);
+}
+.wg.collapsed{ transform:translateX(calc(100% - 28px)); background:transparent; border:none; box-shadow:none }
+.wg.collapsed > :not(.wg-collapse){ visibility:hidden }
+
+/* Collapse handle — small chevron button anchored top-left of the panel. */
+.wg-collapse{
+  position:absolute; top:6px; left:6px;
+  width:22px; height:22px;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--panel-title-bg);
+  color:var(--panel-title-text);
+  border:1px solid var(--panel-border);
+  border-radius:999px;
+  box-shadow:0 1px 4px rgba(0,0,0,.18);
+  font-family:var(--kami-font-mono); font-size:13px; font-weight:600;
+  cursor:pointer;
+  transition:background .15s, color .15s;
+  z-index:2;
+}
+.wg-collapse:hover{ background:var(--button-bg-hover); color:var(--button-text-hover) }
+.wg .wg-collapse::before{ content:"›" }
+.wg.collapsed .wg-collapse::before{ content:"‹" }
+.wg-title{ padding:8px 12px 8px 34px; background:var(--panel-title-bg); color:var(--panel-title-text); border-bottom:1px solid var(--panel-border); font-weight:600; font-family:var(--kami-font-display); cursor:default; letter-spacing:.02em; }
+.wg-body{ padding:4px 0; }
+.wg.is-collapsed .wg-body{ display:none; }
+
+.wg-row{ display:grid; grid-template-columns:46% 54%; align-items:center; padding:4px 12px; min-height:24px; }
+.wg-row + .wg-row{ border-top:1px solid var(--panel-border); }
+.wg-name{ font-size:12px; font-family:var(--kami-font-body); opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Slider row */
+.wg-slider .wg-widget{ display:grid; grid-template-columns:1fr 50px; align-items:center; gap:6px; }
+.wg-track{ position:relative; height:18px; background:var(--slider-track); cursor:ew-resize; border-radius:1px; overflow:hidden; border:1px solid var(--input-border); touch-action:none; }
+.wg-fill{ position:absolute; left:0; top:0; bottom:0; background:var(--slider-fill); width:0%; }
+.wg-track::after{ content:""; position:absolute; top:0; bottom:0; left:var(--wg-knob-x, 0%); width:2px; background:var(--slider-knob); transform:translateX(-1px); }
+.wg-slider input[type=number]{ width:100%; height:20px; background:transparent; border:none; color:var(--panel-text); font-family:var(--kami-font-mono); font-size:11px; text-align:right; padding:0 4px; outline:none; }
+.wg-slider input[type=number]:focus{ background:var(--input-bg); }
+
+/* Boolean row */
+.wg-bool .wg-widget{ display:flex; }
+.wg-bool input[type=checkbox]{ margin:0; accent-color:var(--accent); }
+
+/* Text row */
+.wg-text .wg-widget{ display:grid; grid-template-columns:1fr 24px; gap:6px; align-items:center; }
+.wg-text input[type=text]{ width:100%; height:22px; background:var(--input-bg); border:1px solid var(--input-border); color:var(--input-text); font-family:var(--kami-font-body); font-size:12px; padding:0 6px; outline:none; }
+.wg-text .wg-shuffle{ width:22px; height:22px; padding:0; display:flex; align-items:center; justify-content:center; background:var(--button-bg); border:1px solid var(--input-border); color:var(--button-text); font-family:var(--kami-font-mono); font-size:12px; border-radius:3px; cursor:pointer; transition:background .15s, color .15s; }
+.wg-text .wg-shuffle:hover{ background:var(--button-bg-hover); color:var(--button-text-hover) }
+
+/* Color row */
+.wg-color .wg-widget{ display:grid; grid-template-columns:1fr 50px; gap:6px; align-items:center; }
+.wg-swatch{ position:relative; height:18px; overflow:hidden; border-radius:1px; cursor:pointer; border:1px solid var(--input-border); }
+.wg-swatch input[type=color]{ position:absolute; inset:0; width:100%; height:100%; border:none; padding:0; background:none; cursor:pointer; opacity:1; }
+.wg-color input[type=text]{ width:100%; height:20px; background:transparent; border:none; color:var(--input-text); font-family:var(--kami-font-mono); font-size:11px; outline:none; text-align:left; }
+
+/* Select row */
+.wg-select .wg-widget{ display:flex }
+.wg-select select{ width:100%; height:22px; background:var(--input-bg); border:1px solid var(--input-border); color:var(--input-text); font-family:var(--kami-font-body); font-size:12px; padding:0 4px; outline:none; cursor:pointer; }
+
+/* File row — label + open button + shuffle-sample button */
+.wg-file .wg-widget{ display:grid; grid-template-columns:1fr 24px 24px; gap:6px; align-items:center; }
+.wg-file .wg-file-label{ height:22px; display:flex; align-items:center; padding:0 8px; background:var(--input-bg); border:1px solid var(--input-border); color:var(--input-text); font-family:var(--kami-font-mono); font-size:11px; border-radius:3px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; }
+.wg-file .wg-file-open, .wg-file .wg-shuffle{ width:22px; height:22px; padding:0; display:flex; align-items:center; justify-content:center; background:var(--button-bg); border:1px solid var(--input-border); color:var(--button-text); font-family:var(--kami-font-mono); font-size:12px; border-radius:3px; cursor:pointer; }
+.wg-file .wg-file-open:hover, .wg-file .wg-shuffle:hover{ background:var(--button-bg-hover); color:var(--button-text-hover); }
+.wg-file input[type=file]{ display:none; }
+
+/* Button row */
+.wg-spacer{ height:10px; }
+.wg-button{ grid-template-columns:1fr; padding:0 12px 6px; }
+.wg-button button{ width:100%; padding:7px 0; background:var(--button-bg); border:1px solid var(--panel-border); color:var(--button-text); font-family:var(--kami-font-body); font-size:12px; cursor:pointer; border-radius:2px; letter-spacing:.02em; }
+.wg-button button:hover{ background:var(--button-bg-hover); color:var(--button-text-hover); }
+
+/* ---------- MOBILE PANEL (<=640px) ----------
+   Convert the side panel into a slide-up bottom sheet.
+   - default (uncollapsed) state: sheet up, ~55% viewport tall, scrollable body
+   - collapsed state: sheet down, only a thin pill+handle visible above footer
+   The existing .wg-collapse chevron still toggles .collapsed; we just
+   rotate it so `›` reads as "down" and `‹` reads as "up" visually. */
+@media (max-width:640px){
+  .wg{
+    top:auto;
+    right:0;
+    left:0;
+    bottom:42px; /* sit just above footer */
+    width:100%;
+    max-height:55dvh;
+    border-radius:12px 12px 0 0;
+    border-left:none; border-right:none; border-bottom:none;
+    box-shadow:0 -2px 8px rgba(0,0,0,.1);
+    /* Default on mobile = sheet down (only handle peek). The .collapsed
+       class (toggled by chevron) flips the panel to the OPEN state — this
+       inverts desktop semantics, but matches "auto-collapsed on load" from
+       a CSS-only standpoint while keeping JS untouched. */
+    transform:translateY(calc(100% - 14px));
+    transition:transform .25s cubic-bezier(.2,0,0,1);
+    display:flex; flex-direction:column;
+  }
+  .wg > :not(.wg-collapse){ visibility:hidden; }
+  .wg-title{
+    padding:10px 12px 10px 44px;
+    flex:0 0 auto;
+  }
+  .wg-body{
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    flex:1 1 auto;
+    padding-bottom:8px;
+  }
+  /* Larger touch targets inside rows */
+  .wg-row{ min-height:36px; padding:8px 12px; }
+  .wg-track{ height:22px; }
+  .wg input[type="checkbox"]{ width:18px; height:18px; }
+
+  /* Collapse handle on top edge (was top-left of side panel) */
+  .wg-collapse{
+    top:-14px;
+    left:50%;
+    transform:translateX(-50%);
+    width:56px; height:26px;
+    border-radius:13px;
+    font-size:14px;
+  }
+  /* Inverted-on-mobile: default = sheet down (▴ = tap to open).
+     .collapsed (after chevron tap) = sheet up (▾ = tap to close). */
+  .wg .wg-collapse::before{ content:"▴" }
+  .wg.collapsed .wg-collapse::before{ content:"▾" }
+
+  /* .collapsed on mobile = OPEN state (slide up, contents visible) */
+  .wg.collapsed{
+    transform:translateY(0);
+    background:var(--panel-bg);
+    border:1px solid var(--panel-border);
+    border-bottom:none;
+    box-shadow:0 -6px 24px rgba(0,0,0,.18);
+  }
+  .wg.collapsed > :not(.wg-collapse){ visibility:visible; }
+}

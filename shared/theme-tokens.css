@@ -1,0 +1,76 @@
+/* Canonical theme tokens for toys.iamkesava.com.
+   Single source of truth — both form/ and wordart/ symlink this file into
+   their shared/ directories. Update here and both projects rerender on reload
+   (no-cache dev servers) or after the next deploy.
+
+   Themes: default · brutalist · editorial · terminal · zen.
+   Each block sets a consistent set of CSS custom properties consumed by
+   chrome / panels / sliders / inputs / buttons. Add new themes by appending
+   a new `html[data-theme="..."]` block below. */
+
+:root{
+  --bg:#f6f6f4; --text:#1d1d1f;
+  --border:rgba(0,0,0,.08); --thumb:#1d1d1f; --accent:#1d1d1f;
+  --panel-bg:rgba(250,250,250,.96); --panel-border:rgba(0,0,0,.08); --panel-text:#262626;
+  --panel-title-bg:rgba(240,240,240,.95); --panel-title-text:#262626;
+  --slider-track:#f5f5f5; --slider-fill:#dadada; --slider-knob:#262626;
+  --input-bg:#f5f5f5; --input-border:rgba(0,0,0,.05); --input-text:#262626;
+  --button-bg:#f0f0f0; --button-text:#262626; --button-bg-hover:#262626; --button-text-hover:#fff;
+  --chrome-text:#0a0a0a;
+  --mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:'Inter',"Helvetica Neue",Helvetica,Arial,sans-serif;
+  color-scheme:light;
+}
+
+html[data-theme="brutalist"]{
+  --bg:#ffffff; --text:#000000;
+  --border:#000; --thumb:#000; --accent:#d946ef;
+  --panel-bg:#fff; --panel-border:#000; --panel-text:#000;
+  --panel-title-bg:#000; --panel-title-text:#fff;
+  --slider-track:#fff; --slider-fill:#000; --slider-knob:#d946ef;
+  --input-bg:#fff; --input-border:#000; --input-text:#000;
+  --button-bg:#fff; --button-text:#000; --button-bg-hover:#000; --button-text-hover:#d946ef;
+  --chrome-text:#000;
+  color-scheme:light;
+}
+
+html[data-theme="editorial"]{
+  --bg:#f3eee2; --text:#16140c;
+  --border:#c8c0a8; --thumb:#16140c; --accent:#d4a040;
+  --panel-bg:rgba(243,238,226,.96); --panel-border:rgba(22,20,12,.18); --panel-text:#16140c;
+  --panel-title-bg:rgba(22,20,12,.06); --panel-title-text:#16140c;
+  --slider-track:rgba(22,20,12,.06); --slider-fill:rgba(22,20,12,.20); --slider-knob:#16140c;
+  --input-bg:rgba(22,20,12,.05); --input-border:rgba(22,20,12,.12); --input-text:#16140c;
+  --button-bg:rgba(22,20,12,.06); --button-text:#16140c; --button-bg-hover:#16140c; --button-text-hover:#d4a040;
+  --chrome-text:#16140c;
+  color-scheme:light;
+}
+
+html[data-theme="terminal"]{
+  --bg:#020806; --text:#26ff9d;
+  --border:rgba(38,255,157,.18); --thumb:#26ff9d; --accent:#9eff00;
+  --panel-bg:rgba(2,8,6,.96); --panel-border:rgba(38,255,157,.18); --panel-text:#26ff9d;
+  --panel-title-bg:rgba(38,255,157,.06); --panel-title-text:#9eff00;
+  --slider-track:rgba(38,255,157,.06); --slider-fill:rgba(38,255,157,.30); --slider-knob:#9eff00;
+  --input-bg:rgba(38,255,157,.04); --input-border:rgba(38,255,157,.18); --input-text:#26ff9d;
+  --button-bg:rgba(38,255,157,.06); --button-text:#26ff9d; --button-bg-hover:#26ff9d; --button-text-hover:#020806;
+  --chrome-text:#26ff9d;
+  color-scheme:dark;
+}
+html[data-theme="terminal"] body,
+html[data-theme="terminal"] input,
+html[data-theme="terminal"] button{
+  font-family:var(--mono) !important;
+}
+
+html[data-theme="zen"]{
+  --bg:#ecead8; --text:#3a3a32;
+  --border:rgba(58,58,50,.10); --thumb:#3a3a32; --accent:#1f1f1c;
+  --panel-bg:rgba(236,234,216,.96); --panel-border:rgba(58,58,50,.12); --panel-text:#3a3a32;
+  --panel-title-bg:rgba(58,58,50,.05); --panel-title-text:#1f1f1c;
+  --slider-track:rgba(58,58,50,.06); --slider-fill:rgba(58,58,50,.20); --slider-knob:#1f1f1c;
+  --input-bg:rgba(58,58,50,.05); --input-border:rgba(58,58,50,.10); --input-text:#3a3a32;
+  --button-bg:rgba(58,58,50,.05); --button-text:#3a3a32; --button-bg-hover:#1f1f1c; --button-text-hover:#ecead8;
+  --chrome-text:#3a3a32;
+  color-scheme:light;
+}

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Displace — pixart</title>
+<link rel="stylesheet" href="../shared/chrome.css">
+<link rel="stylesheet" href="../shared/gui.css">
+<script src="../shared/theme.js"></script>
+</head>
+<body class="wa-effect">
+
+<header class="wa-top">
+  <div class="theme-switcher-container">
+    <button class="theme-switcher-pill" aria-label="Cycle theme" title="Cycle theme">
+      <span class="theme-switcher-pill-icon">●</span>
+    </button>
+  </div>
+  <nav class="kami-breadcrumb">
+    <a href="https://iamkesava.com">home</a><span class="sep">·</span>
+    <a href="https://toys.iamkesava.com">toys</a><span class="sep">·</span>
+    <span class="current">pixart</span>
+  </nav>
+  <div class="grow"></div>
+  <nav class="effect-nav">
+      <a href="../ascii/">ascii</a>
+      <a href="../bevel/">bevel</a>
+      <a href="../cellular/">cellular</a>
+      <a href="../crt/">crt</a>
+      <a href="../displace/" class="active">displace</a>
+      <a href="../distort/">distort</a>
+      <a href="../dithering/">dithering</a>
+      <a href="../dots/">dots</a>
+      <a href="../edge/">edge</a>
+      <a href="../gradients/">gradients</a>
+      <a href="../patterns/">patterns</a>
+      <a href="../recolor/">recolor</a>
+      <a href="../scatter/">scatter</a>
+      <a href="../slide/">slide</a>
+      <a href="../stack/">stack</a>
+      <a href="../stippling/">stippling</a>
+    </nav>
+  <div class="wa-actions">
+    <button id="help-btn" title="Keyboard shortcuts">keys</button>
+    <button id="export-png" title="export png">png</button>
+    <button id="export-mp4" title="record loopable video">video</button>
+  </div>
+</header>
+
+<main class="wa-stage">
+  <canvas id="cv"></canvas>
+</main>
+
+<aside class="wg" id="panel">
+  <div class="wg-title" role="button" tabindex="0">Controls</div>
+  <div class="wg-body">
+    <!-- Shared source picker (image / video) — every effect shares these. -->
+    <div class="wg-row wg-file" data-key="source" data-handler="pix-source">
+      <div class="wg-name">Source</div>
+      <div class="wg-widget">
+        <label class="wg-file-label">click to choose</label>
+        <button type="button" class="wg-file-open" title="Open file (image or video)">+</button>
+        <button type="button" class="wg-shuffle" title="Cycle bundled sample">↻</button>
+        <input type="file" accept="image/*,video/*">
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="fit">
+      <div class="wg-name">Fit</div>
+      <div class="wg-widget">
+        <select><option value="cover">cover</option><option value="contain">contain</option></select>
+      </div>
+    </div>
+    <div class="wg-row wg-color" data-key="bg">
+      <div class="wg-name">Background</div>
+      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
+    </div>
+    <!-- effect-specific control rows -->
+    <div class="wg-row wg-slider" data-key="canvasSize"    data-min="100" data-max="1000" data-step="10"><div class="wg-name">Canvas size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="blurAmount"    data-min="0"   data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="grainAmount"   data-min="0"   data-max="1"    data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="gamma"         data-min="0.1" data-max="2"    data-step="0.1"><div class="wg-name">Gamma</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="blackPoint"    data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Black point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="whitePoint"    data-min="0"   data-max="255"  data-step="1"><div class="wg-name">White point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="pixelDensity"  data-min="4"   data-max="20"   data-step="1"><div class="wg-name">Step size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="yDisplacement" data-min="-500" data-max="500" data-step="5"><div class="wg-name">Displacement</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="dotSize"       data-min="1"   data-max="100"  data-step="1"><div class="wg-name">Dot size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="viewYaw"       data-min="0"   data-max="360"  data-step="1"><div class="wg-name">View yaw</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="pitch"         data-min="0"   data-max="90"   data-step="1"><div class="wg-name">Pitch</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
+  </div>
+</aside>
+
+<div class="wa-rec" role="status"><span class="dot"></span><span class="label">Recording</span><div class="track"><div class="bar"></div></div></div>
+
+<footer class="wa-bottom">
+  <nav class="row sister" aria-label="Sister sites">
+    <span><a href="https://apps.iamkesava.com/">apps</a></span><span class="sep">·</span>
+    <span><a href="https://tools.iamkesava.com/">tools</a></span><span class="sep">·</span>
+    <span class="current">toys</span><span class="sep">·</span>
+    <span><a href="https://codex.iamkesava.com/">codex</a></span>
+  </nav>
+  <div class="row made">
+    made by <a href="https://iamkesava.com" rel="author">kesava</a> <span class="sep">·</span> <a href="https://github.com/k3sava/pixart" rel="noopener">github</a>
+  </div>
+</footer>
+
+<script src="../shared/state.js" defer></script>
+<script src="../shared/keys.js" defer></script>
+<script src="../shared/gui.js" defer></script>
+<script src="../shared/export.js" defer></script>
+<script src="effect.js" defer></script>
+</body>
+</html>
