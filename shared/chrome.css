@@ -387,6 +387,21 @@ html[data-theme="zen"] .theme-switcher-pill:hover{ background:hsla(92,8%,48%,.1)
   transform:rotate(45deg);
 }
 
+/* Both BRUTALIST and TERMINAL are zero-radius aesthetics by design. The
+   per-element overrides further down cover the chrome surfaces, but each
+   new control type or homepage card was leaking the default 4-12px radius
+   through. A scoped catch-all keeps the geometry honest without needing a
+   matching override for every new element class. !important is required
+   because individual rules set border-radius explicitly. */
+html[data-theme="brutalist"] *,
+html[data-theme="brutalist"] *::before,
+html[data-theme="brutalist"] *::after,
+html[data-theme="terminal"] *,
+html[data-theme="terminal"] *::before,
+html[data-theme="terminal"] *::after{
+  border-radius:0 !important;
+}
+
 /* --- BRUTALIST --- hard borders, 0 radius, magenta accent on hover --- */
 html[data-theme="brutalist"] .wa-actions button,
 html[data-theme="brutalist"] .effect-nav a,

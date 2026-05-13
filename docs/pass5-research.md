@@ -1,0 +1,12 @@
+- pixel-sort: algorithm faithful (Asendorf run-based scan + key sort, 4 directions + 4 keys); stripped mode/animate/interactive/focus/bias/seed/cascade; defaults luminance row 80-220; showEffect added.
+- rgb-shift: rewrote effect.js to 3-pass channel-isolation with native canvas composite (add=lighter, screen, lighten, over=source-over). Stripped anim/interactive/chromaMode/focusRadius. index.html data-keys match required list (13 keys, includes showEffect). Defaults: rX=6,bX=-6 stereoscopic split, blend=add, gain=1, fringe=0.3.
+- [pass5] kaleidoscope | rewrote effect.js to pure N-fold polar fold (Brewster); stripped recurseDepth/tint/seed/mode/animate/interactive/focusRadius from params+index; defaults 8/mirror/zoom 1.2; verified keys + syntax + no anim residue.
+- contour: stripped to canonical marching-squares 16-case implementation; removed style/bandPalette/seed/mode/animate/interactive/focusRadius and preprocessor sliders; added showEffect; 10 data-keys match spec; node --check clean
+- flow-field: stripped seed/mode/animate/interactive/focusRadius + canvasSize/blur/grain/gamma/levels; added showEffect; Perlin field + per-step stroke verified; defaults: 2000p × 28s × 1.6dL × 0.006ns × α0.45 sample
+- slit-scan: rewrote to spatial-shear only (image + video fallback); stripped radial/history/wrap/seed/mode/animate/interactive/focusRadius; added showEffect; defaults axis=horizontal spread=0.6 tilt=0.
+- [zoom-blur] pass5 — algorithm verified (N-sample radial w/ 4 geometries), stripped seed/mode/animate/interactive/focusRadius/canvasSize, added showEffect, defaults strength=0.4 samples=16 holdSharp=0.2
+- voronoi: rewrote with spatial-hash F1/F2, stripped seed/mode/animate/interactive/focusRadius, 12 wg keys including showEffect; defaults seedCount=200, poisson, euclidean, relax=1, borderWidth=0.5
+- film-grain (pass5): stripped gateWeave/matte/seed/canvasSize from GUI; removed animation/interactive/focus; added showEffect bypass; fixed-seed deterministic grain; pipeline (LUT→halation→grain→vignette) intact.
+- [halftone-cmyk] pass5 — algo verified (RGB→CMYK+GCR, 4 plates at 15/75/0/45°, multiply composite), GUI stripped to 16 required keys incl showEffect, animation/interactive/dotShape removed
+- watercolor: validated pipeline (sobel+bilateral+rim+grain+LUT real), stripped paperSeed/mode/animate/interactive/focusRadius, added showEffect toggle.
+- [claude-code] ship | ink-wash — stripped anim/interactive/seed/mode/focus; data-keys match required 12; sumi-e pipeline (Sobel→strokes→bleed→grain) intact.

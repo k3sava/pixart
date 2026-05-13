@@ -1,0 +1,2 @@
+- 2026-05-13 patterns: rewrote effect to tooooools algorithm (single uploaded tile stamped where source lum < threshold; defaults 178/49/#fff; default tile pattern-1.png); stripped procedural Truchet families, animation envelopes, and interactive params; added patternImage wg-file row.
+- scatter: dotTexture file picker wired (pix-dot handler); textures replace solid discs at draw; ANIM/applyAnimationT/animationLoop/renderAnimationFrame + magnetism/coherence/mode/animate/interactive/focusRadius stripped.
