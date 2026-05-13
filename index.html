@@ -13,12 +13,38 @@
   /* Homepage — built on the kami chrome variables.
      Card layout, filter chips, search, hover state. */
   html, body { overflow:auto; height:auto; min-height:100dvh; background:var(--bg); color:var(--text); }
-  body.pixart-home { padding-top:44px; padding-bottom:80px; }
+  body.pixart-home { padding-top:0; padding-bottom:0; }
+
+  /* Canonical fixed breadcrumb (matches toys.iamkesava.com chrome). */
+  .kami-breadcrumb-fixed{
+    position:fixed; top:1.2rem; left:5rem; z-index:100;
+    color:var(--kami-breadcrumb, #4a4a4a);
+  }
+  .kami-breadcrumb-fixed a{
+    color:var(--kami-breadcrumb, #4a4a4a) !important;
+    text-decoration:none !important;
+  }
+  .kami-breadcrumb-fixed a:hover{ color:var(--text) !important; }
+  @media (max-width:640px){
+    .kami-breadcrumb-fixed{ top:15px !important; left:48px !important; }
+  }
+  /* Canonical kami-footer (text-only centered footer). The legacy
+     .home-footer rule below is dead but kept for back-compat. */
+  .kami-footer a{ color:var(--kami-footer-link, #6b7280); text-decoration:none; }
+  .kami-footer a:hover{ color:var(--text); }
+  .kami-footer kbd{
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:10px;
+    padding:1px 5px;
+    border:1px solid var(--bar-border, rgba(0,0,0,.08));
+    border-radius:3px;
+  }
 
   .home-wrap{
     max-width:1280px;
     margin:0 auto;
-    padding:36px 24px 24px;
+    /* 64px top clears the fixed breadcrumb + theme switcher */
+    padding:64px 24px 24px;
   }
   .home-lede{
     display:flex; align-items:flex-end; justify-content:space-between; gap:24px;
@@ -241,22 +267,18 @@
 </head>
 <body class="pixart-home">
 
-<header class="wa-top">
-  <div class="theme-switcher-container">
-    <button class="theme-switcher-pill" aria-label="Cycle theme" title="Cycle theme">
-      <span class="theme-switcher-pill-icon">●</span>
-    </button>
-  </div>
-  <nav class="kami-breadcrumb">
-    <a href="https://iamkesava.com">home</a><span class="sep">·</span>
-    <a href="https://toys.iamkesava.com">toys</a><span class="sep">·</span>
-    <span class="current">pixart</span>
-  </nav>
-  <div class="grow"></div>
-  <div class="wa-actions">
-    <a href="https://github.com/k3sava/pixart" style="font-family:var(--kami-font-body); font-size:12px; padding:4px 12px; border:1px solid var(--bar-border); border-radius:4px; color:var(--text); text-decoration:none; opacity:.75;">github</a>
-  </div>
-</header>
+<!-- Canonical sister-site chrome: fixed breadcrumb top-left + theme
+     switcher top-right. Mirrors toys.iamkesava.com / tools.iamkesava.com. -->
+<nav class="kami-breadcrumb kami-breadcrumb-fixed" style="font-family:'DM Sans', sans-serif; font-size:.75rem;">
+  <a href="https://iamkesava.com">home</a><span class="mx-1 select-none">·</span>
+  <a href="https://toys.iamkesava.com">toys</a><span class="mx-1 select-none">·</span>
+  <span>pixart</span>
+</nav>
+<div class="theme-switcher-container" style="position:fixed; top:14px; right:18px; z-index:100;">
+  <button class="theme-switcher-pill" aria-label="Cycle theme" title="Cycle theme">
+    <span class="theme-switcher-pill-icon">●</span>
+  </button>
+</div>
 
 <main class="home-wrap">
   <div class="home-lede">
@@ -287,19 +309,25 @@
   </div>
 </main>
 
-<footer class="home-footer">
-  <div>
-    <a href="https://apps.iamkesava.com/">apps</a><span class="sep">·</span>
-    <a href="https://tools.iamkesava.com/">tools</a><span class="sep">·</span>
-    <span>toys</span><span class="sep">·</span>
-    <a href="https://codex.iamkesava.com/">codex</a>
+<!-- Canonical sister-site footer: 3-row kami pattern. -->
+<footer class="kami-footer" style="font-family:'DM Sans', sans-serif; font-size:.8rem; padding:3rem 0 2rem; text-align:center;">
+  <div style="font-family:'JetBrains Mono', ui-monospace, monospace; font-size:.72rem; color:var(--kami-text-muted, #4a4a4a); margin-bottom:.6rem;">
+    <a href="https://github.com/k3sava/pixart" style="color:inherit;">github</a>
+    <span aria-hidden="true" style="margin:0 .35rem;">·</span>
+    <kbd>/</kbd> search
+    <span aria-hidden="true" style="margin:0 .35rem;">·</span>
+    <kbd>T</kbd> theme
   </div>
+  <nav aria-label="Sister sites" style="font-family:'JetBrains Mono', ui-monospace, monospace; font-size:.72rem; display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; color:var(--kami-text-muted, #4a4a4a); margin-bottom:.6rem;">
+    <span><a href="https://apps.iamkesava.com/" style="color:inherit;">apps</a></span><span aria-hidden="true">·</span>
+    <span><a href="https://tools.iamkesava.com/" style="color:inherit;">tools</a></span><span aria-hidden="true">·</span>
+    <span aria-current="page" style="font-weight:600; color:var(--kami-text, #0a0a0a);">toys</span><span aria-hidden="true">·</span>
+    <span><a href="https://codex.iamkesava.com/" style="color:inherit;">codex</a></span>
+  </nav>
   <div>
-    made by <a href="https://iamkesava.com">kesava</a>
-    <span class="sep">·</span>
-    <a href="https://github.com/k3sava/pixart">github</a>
-    <span class="sep">·</span>
-    keys: <kbd>/</kbd> search · <kbd>T</kbd> theme
+    made by <a href="https://iamkesava.com" rel="author">kesava</a>
+    <span aria-hidden="true" style="margin:0 .35rem;">·</span>
+    <a href="https://github.com/k3sava/pixart" rel="noopener">github</a>
   </div>
 </footer>
 
