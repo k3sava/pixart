@@ -24,7 +24,15 @@
 
 (function(){
   const PREFIX = 'pix.';
-  const SHARED_KEYS = ['fit', 'bg', 'playRate', 'loopVideo', 'sourceUrl'];
+  const SHARED_KEYS = ['fit', 'bg', 'playRate', 'loopVideo', 'sourceUrl', 'ratio'];
+
+  // Output aspect ratios. The canvas is centered inside .wa-stage with
+  // letterboxing in the bg colour. Width:Height pairs.
+  const RATIOS = {
+    square:    [1, 1],
+    portrait:  [3, 4],
+    landscape: [16, 9],
+  };
 
   // Bundled samples shipped with the site. Add more files to assets/samples/.
   // Each entry is a relative URL from any /pixart/<effect>/ page.
@@ -49,6 +57,7 @@
   const params = {
     fit:       read('fit', 'cover'),
     bg:        read('bg', '#000000'),
+    ratio:     read('ratio', 'landscape'),
     playRate:  read('playRate', 1),
     loopVideo: read('loopVideo', true),
   };
@@ -177,8 +186,51 @@
     if(k === 'fit' || k === 'bg') { drawIntoSource(); notify(); }
     if(k === 'playRate' && media && mediaType === 'video') media.playbackRate = v;
     if(k === 'loopVideo' && media && mediaType === 'video') media.loop = !!v;
+    if(k === 'ratio') applyRatio();
     if(isShared(k)) write(k, v);
   }
+
+  // Resize the on-screen canvas to fit the selected ratio within .wa-stage,
+  // letterboxed with the bg colour. Triggers a custom 'pix:fit' event so
+  // each effect's own fitCanvas() can repaint at the new client dimensions
+  // (we use a custom event, not window.resize, to avoid recursive feedback
+  // when the window resize listener calls applyRatio()).
+  let _applyingRatio = false;
+  function applyRatio(){
+    if(_applyingRatio) return;
+    _applyingRatio = true;
+    try {
+      const cv = document.getElementById('cv');
+      const stage = document.querySelector('.wa-stage');
+      if(!cv || !stage){ _applyingRatio = false; return; }
+      const r = RATIOS[params.ratio] || RATIOS.landscape;
+      const aspect = r[0] / r[1];
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      let w, h;
+      if(sw / sh > aspect){ h = sh; w = h * aspect; }
+      else { w = sw; h = w / aspect; }
+      cv.style.width  = Math.round(w) + 'px';
+      cv.style.height = Math.round(h) + 'px';
+      cv.style.position = 'absolute';
+      cv.style.left = '50%';
+      cv.style.top  = '50%';
+      cv.style.transform = 'translate(-50%, -50%)';
+      window.dispatchEvent(new Event('resize'));
+    } finally {
+      _applyingRatio = false;
+    }
+  }
+  // Apply once on DOM ready, and re-apply on viewport resize.
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', applyRatio);
+  } else {
+    queueMicrotask(applyRatio);
+  }
+  window.addEventListener('resize', () => {
+    if(_applyingRatio) return; // skip self-triggered resizes
+    applyRatio();
+  }, { passive: true });
 
   window.PIXSource = {
     getCanvas: () => sourceCanvas,

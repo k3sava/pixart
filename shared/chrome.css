@@ -55,7 +55,10 @@ body.wa-effect{ background:#000; }
    rasterizes into the visible region instead of disappearing under the panel.
    Effects read cv.clientWidth, so this shrinks the draw area cleanly. */
 .wa-stage{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;overflow:hidden;background:#000;z-index:0}
-.wa-stage canvas{display:block;width:100% !important;height:100% !important}
+/* Canvas is sized by shared/state.js applyRatio() to fit the selected ratio,
+   centered with letterboxing. Effects read cv.clientWidth/Height which now
+   honour the chosen ratio without any per-effect change. */
+.wa-stage canvas{display:block}
 @media (min-width:641px){
   body:not(.panel-collapsed) .wa-stage{ right:320px !important; }
 }

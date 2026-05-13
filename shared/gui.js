@@ -21,7 +21,17 @@
       panelEl.querySelectorAll('.wg-row').forEach(r => this._bindRow(r));
     }
     on(fn){ this.listeners.add(fn); return () => this.listeners.delete(fn); }
-    emit(key){ for(const fn of this.listeners) fn(key, this.params); }
+    emit(key){
+      // Forward shared-state keys (fit / bg / ratio / playRate / loopVideo)
+      // to PIXSource so every effect's panel is wired without per-effect
+      // boilerplate. The effect-level gui.on handler still fires for its own
+      // bookkeeping.
+      if(window.PIXSource && window.PIXSource.SHARED_KEYS &&
+         window.PIXSource.SHARED_KEYS.includes(key)){
+        window.PIXSource.setParam(key, this.params[key]);
+      }
+      for(const fn of this.listeners) fn(key, this.params);
+    }
     syncFromParams(){
       for(const [key, row] of this.rows){
         this._writeRow(row, this.params[key]);
@@ -78,7 +88,18 @@
         this.emit(key);
       };
       row._write = write;
-      const initial = (key in this.params) ? this.params[key] : select.value;
+      // Hydrate from PIXSource for shared keys (ratio/fit/bg/etc) so the
+      // select reflects the persisted cross-effect choice; fall back to the
+      // effect's own params; final fallback to the markup default.
+      let initial;
+      if(window.PIXSource && window.PIXSource.SHARED_KEYS &&
+         window.PIXSource.SHARED_KEYS.includes(key) && key in window.PIXSource.params){
+        initial = window.PIXSource.params[key];
+      } else if(key in this.params){
+        initial = this.params[key];
+      } else {
+        initial = select.value;
+      }
       write(initial);
       select.addEventListener('change', () => write(select.value));
     }
