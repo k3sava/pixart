@@ -21,8 +21,34 @@
 //         out[s..s+2] = 128                      // mid-grey "flat"
 //       out[s+3] = pixels[s+3]                   // preserve source alpha
 //
-// Static single-effect build: no animation, no interactive cursor, no
-// softness/chromaShift post-processing. Faithful reference algorithm.
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone across its full slider
+// range against `portrait.jpg` in Playwright (see docs/step2-screenshots/ and
+// docs/step2-research.md). Sweet spot for "bevel reads AND portrait stays
+// recognizable":
+//
+//   depth=20           — reference default; ≥60 collapses face into grain.
+//   lightAngle=45      — reference default; portrait reads at any angle so
+//                        we keep the bundle value as the static landing.
+//   blackPoint=0       — pulling bp up >100 starts dissolving the figure.
+//   whitePoint=255     — full range; pre-tone-mode midpoint, mode shifts it.
+//   effectThreshold=0  — every gradient writes a relief value; raising it
+//                        produces a beautiful etched-outline-only look that
+//                        the `etch` mode exploits.
+//
+// Animation modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   breathe — lightAngle slowly orbits the subject (0 → 360, one revolution
+//             per loop). Cursor-as-light's static cousin; cinematic.
+//   tone    — whitePoint drifts above and below default (130 ↔ 255). The
+//             relief "breathes" between pale charcoal and crisp etching.
+//   etch    — effectThreshold cosine 0 ↔ 1.5. Subject's flat regions dissolve
+//             to mid-grey and re-emerge — a rhythmic reveal.
+//
+// Interactive: cursor X drives lightAngle (light orbits with the cursor),
+// cursor Y drives depth (5..80 — pressing down = deeper relief). One metaphor:
+// cursor IS the light.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -44,6 +70,9 @@ const params = {
   depth:             20,
   lightAngle:        45,
   effectThreshold:   0,
+  animate:           false,
+  mode:              'breathe',
+  interactive:       false,
   showEffect:        true,
   fit:               'cover',
   bg:                '#0a0a0a',
@@ -235,11 +264,121 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+//
+// One pure renderAt(t01) that:
+//   1. snapshots the user's "base" values of the modulated control
+//      (so mode envelopes oscillate around the user-set defaults, not hard-
+//       coded constants — moving the slider while animate is on still works);
+//   2. applies the active mode's cosine envelope to the right control;
+//   3. rebuilds the bevel + paints.
+//
+// We restore the base values after each frame so the GUI displays the user's
+// intended defaults, not the momentary modulated value (otherwise the number
+// boxes would visibly jitter every frame).
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+// Cosine envelope: 0..1..0..1 across t in [0,1) — smooth ping-pong.
+// Using (1 - cos(2π t)) / 2 = sine-shaped 0→1→0; for full-circle sweeps
+// (e.g. lightAngle) we use plain t so it monotonically wraps the loop.
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  // returns {restore: () => void} so the caller can roll back after render.
+  const mode = params.mode;
+  if(mode === 'breathe'){
+    const base = params.lightAngle;
+    params.lightAngle = (t01 * 360) % 360;
+    return () => { params.lightAngle = base; };
+  }
+  if(mode === 'tone'){
+    // Drift whitePoint between 130 and 255 (verified-recognisable lower bound
+    // from the whitePoint sweep). Centre at 192, amplitude 62.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'etch'){
+    // 0 ↔ 1.5 cosine. At 0 the full image, at 1.5 only high-gradient relief
+    // survives. pingPong gives a gentle reveal/conceal rhythm.
+    const base = params.effectThreshold;
+    params.effectThreshold = 1.5 * pingPong(t01);
+    return () => { params.effectThreshold = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseAngle = params.lightAngle;
+  const baseDepth = params.depth;
+  params.lightAngle = ax * 360;
+  // Y maps to depth 5..80 — top of canvas = shallow, bottom = deep relief.
+  params.depth = 5 + ay * 75;
+  return () => { params.lightAngle = baseAngle; params.depth = baseDepth; };
+}
+
+// Track whether the last frame baked a modulated whitePoint into the
+// preprocessed buffer. If so, the next non-tone frame must re-preprocess
+// using the user's actual whitePoint to wipe the leftover modulation.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  // tone-mode modulates whitePoint, a preprocessor key — re-run preprocess.
+  // lightAngle / effectThreshold / depth only need buildBevel().
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildBevel();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    // Static interactive: render once per move.
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => { paint(); return cv; },
-  pauseRender: () => {},
-  resumeRender: () => { paint(); return cv; },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -249,15 +388,32 @@ const PAINT_KEYS = new Set(['showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      // Modes only matter when animating; nothing else changes.
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -272,6 +428,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);
