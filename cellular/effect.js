@@ -91,37 +91,13 @@ const params = {
   mnccThreshold3Lower: 0.342, mnccThreshold3Upper: 0.382,
   mnccThreshold4Lower: 0.889, mnccThreshold4Upper: 0.978,
   // Paint
-  aliveColor:        '#000000',
-  deadColor:         '#ffffff',
   showEffect:        true,
-  // Loop-animation amplitude (extra generations swept on top of `steps`).
-  stepsSweep:        8,
-  // ---- Refinement pass (2026-05-13) ----
-  // Mode picks the animation envelope. Each mode animates a distinct subset
-  // of the CA parameter space, so the *kind* of motion is recognisable
-  // before you read a label.
-  mode:              'breath',
-  // chirality biases the Moore-3×3 neighbour count toward diagonals or
-  // cardinals — visible as left- or right-leaning growth fronts. Reynolds
-  // (1987) showed that small asymmetries in flocking rules produce coherent
-  // emergent directionality; same trick applied to a CA neighbourhood.
-  // -1 = cardinal-heavy (axis-aligned growth), 0 = symmetric Moore (default),
-  // +1 = diagonal-heavy (right-leaning growth fronts).
-  chirality:         0,
-  // gapTone paints a faint 1px stroke around each alive cell at this
-  // brightness. Tightens grain perception (Mach-band edges between cells
-  // sharpen contour) without obvious linework. Default 28 ≈ barely visible.
-  gapTone:           28,
-  // Magnetic interactive: cells flock toward cursor with 1/r falloff inside
-  // this radius. Classic Reynolds cohesion mapped onto a CA: the grid is
-  // displaced by a vector field pointing at the cursor before seeding.
-  focusRadius:       240,
   // Shared chrome
-  animate:           false,
-  interactive:       false,
   fit:               'cover',
   bg:                '#0a0a0a',
 };
+const ALIVE_COLOR = '#000000';
+const DEAD_COLOR  = '#ffffff';
 if(window.PIXState) window.PIXState.hydrate(params);
 
 let gui;
@@ -134,7 +110,6 @@ let gridB = null;           // Back buffer for double-buffered stepping
 let gridW = 0, gridH = 0;
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
-let mouseX = 0, mouseY = 0;
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -274,41 +249,18 @@ function seedGrid(){
     gridB = new Uint8Array(N);
   }
   const th = params.threshold;
-  const dx = _seedShiftX, dy = _seedShiftY;
-  const useDrift = (dx !== 0 || dy !== 0);
-  const useMag = _magR2 > 0;
   for(let cy = 0; cy < gridH; cy++){
     const y0c = cy * cs;
     const y1c = Math.min(H, y0c + cs);
     for(let cx = 0; cx < gridW; cx++){
       const x0c = cx * cs;
       const x1c = Math.min(W, x0c + cs);
-      // Compute the (sub-pixel) shift for this cell. Drift is uniform;
-      // magnetic adds a local cohesion vector pointing at the cursor.
-      let sx = dx, sy = dy;
-      if(useMag){
-        const ccx = (x0c + x1c) * 0.5;
-        const ccy = (y0c + y1c) * 0.5;
-        const vx = _magCx - ccx, vy = _magCy - ccy;
-        const d2 = vx*vx + vy*vy;
-        if(d2 < _magR2 && d2 > 1){
-          // 1/r falloff (Reynolds cohesion) — pull magnitude shrinks linearly
-          // toward zero at the radius edge; cap so the warp stays subtle.
-          const d = Math.sqrt(d2);
-          const pull = (1 - d / _magRadius) * _magStrength;
-          sx += vx / d * pull;
-          sy += vy / d * pull;
-        }
-      }
       let alive = 0;
       outer:
       for(let y = y0c; y < y1c; y++){
-        // Wrap sampled row toroidally so drift never leaves the image.
-        const sy0 = ((Math.round(y + sy) % H) + H) % H;
-        const row = sy0 * W;
+        const row = y * W;
         for(let x = x0c; x < x1c; x++){
-          const sx0 = ((Math.round(x + sx) % W) + W) % W;
-          if(lumGrid[row + sx0] <= th){ alive = 1; break outer; }
+          if(lumGrid[row + x] <= th){ alive = 1; break outer; }
         }
       }
       grid[cy * gridW + cx] = alive;
@@ -327,8 +279,6 @@ function classicStep(src, dst){
   const w = gridW, h = gridH;
   const sL = params.surviveLowerBound, sU = params.surviveUpperBound;
   const bL = params.birthLowerBound,   bU = params.birthUpperBound;
-  const ch = clamp(params.chirality, -1, 1);
-  const useCh = ch !== 0;
   for(let y = 0; y < h; y++){
     const yU = (y - 1 + h) % h, yD = (y + 1) % h;
     const rU = yU * w, rC = y * w, rD = yD * w;
@@ -338,15 +288,6 @@ function classicStep(src, dst){
       const nL  = src[rC + xL],                   nR  = src[rC + xR];
       const nDL = src[rD + xL], nD = src[rD + x], nDR = src[rD + xR];
       let n = nUL + nU + nUR + nL + nR + nDL + nD + nDR;
-      if(useCh){
-        // Diagonal-heavy (+ch) up-weights corner neighbours; cardinal-heavy
-        // (-ch) up-weights edge neighbours. Bias is at most ±2 so a
-        // mid-density cell only crosses one band boundary.
-        const diag = nUL + nUR + nDL + nDR;
-        const card = nU + nD + nL + nR;
-        const bias = ch * 0.5 * (diag - card);
-        n = Math.max(0, Math.min(8, Math.round(n + bias)));
-      }
       const alive = src[rC + x];
       dst[rC + x] = alive
         ? (n >= sL && n <= sU ? 1 : 0)
@@ -486,11 +427,11 @@ function paint(){
   const ch = dh / gridH;
 
   // Dead background tile (bundle: white).
-  ctx.fillStyle = params.deadColor;
+  ctx.fillStyle = DEAD_COLOR;
   ctx.fillRect(ox, oy, dw, dh);
 
   // Alive cells (bundle: black, rect(x, y, cw+1, ch+1) — +1 hides seams).
-  ctx.fillStyle = params.aliveColor;
+  ctx.fillStyle = ALIVE_COLOR;
   const cwR = Math.ceil(cw) + 1;
   const chR = Math.ceil(ch) + 1;
   for(let cy = 0; cy < gridH; cy++){
@@ -504,182 +445,21 @@ function paint(){
     }
   }
 
-  // gapTone: paint a 1px stroke at the exposed boundary of each alive cell
-  // (only where the neighbour is dead). Mach-band sharpening — tightens
-  // the perceived grain without adding visible linework. Skipped when
-  // gapTone is 0 (the bundle's default behaviour).
-  const gt = params.gapTone | 0;
-  if(gt > 0 && cw >= 2){
-    ctx.fillStyle = `rgb(${gt},${gt},${gt})`;
-    for(let cy = 0; cy < gridH; cy++){
-      const py = oy + Math.floor(cy * ch);
-      const row = cy * gridW;
-      const rowU = cy > 0 ? row - gridW : -1;
-      const rowD = cy < gridH - 1 ? row + gridW : -1;
-      for(let cx = 0; cx < gridW; cx++){
-        if(grid[row + cx] !== 1) continue;
-        const px = ox + Math.floor(cx * cw);
-        // top
-        if(rowU < 0 || grid[rowU + cx] === 0) ctx.fillRect(px, py, cwR, 1);
-        // bottom
-        if(rowD < 0 || grid[rowD + cx] === 0) ctx.fillRect(px, py + chR - 1, cwR, 1);
-        // left
-        if(cx === 0 || grid[row + cx - 1] === 0) ctx.fillRect(px, py, 1, chR);
-        // right
-        if(cx === gridW - 1 || grid[row + cx + 1] === 0) ctx.fillRect(px + cwR - 1, py, 1, chR);
-      }
-    }
-  }
-
   ctx.restore();
 }
 
-// ---------- animation ----------
-//
-// 15s seamless loop: `steps` pingpongs base → base+sweep → base across the
-// cycle. Endpoints meet because (1 − cos(2π t))/2 = 0 at both t=0 and t=1
-// (and we explicitly collapse t=1 to t=0 to dodge IEEE-754 epsilon).
-function pingpongT01(t){
-  let w = t - Math.floor(t);
-  if(w === 1) w = 0;
-  return (1 - Math.cos(w * 2 * Math.PI)) / 2;
-}
 
-// Envelopes for cellular. Each wraps t to [0,1) first so cos(2π·t) is exact
-// at the seam — byte-equal endpoints (renderAt(0) === renderAt(1)) are the
-// hard contract for export.
-//
-//   idle    — static; rest frame is the artwork.
-//   breath  — cosine pingpong on `steps` (the original behaviour).
-//   drift   — uniform 2D pseudo-Perlin shift of the seed sample coords.
-//             Cells appear to *migrate*; the underlying CA rules don't move,
-//             only the seed pattern slides through them. Sin/cos endpoints
-//             match exactly at t=0 and t=1.
-//   pulse   — cellSize sharp rise + slow decay. Asymmetric envelope
-//             (Worley-style nucleus burst). cellSize stepped to int.
-//   march   — stepped subdivision: cellSize ramps through 4 discrete values
-//             with seam-override at t=1 so the seam matches t=0.
-//
-// Note: `magnetic` lives on the interactive axis, not the time axis — it
-// activates only when interactive=true and the cursor is over the canvas.
-function applyAnimationT(tLoop){
-  let t = tLoop - Math.floor(tLoop);
-  if(t === 1) t = 0;
-  const pp = (1 - Math.cos(t * 2 * Math.PI)) / 2;
-  let steps = params.steps;
-  let cellSize = params.cellSize;
-  let shiftX = 0, shiftY = 0;
-  switch(params.mode){
-    case 'idle': break;
-    case 'drift': {
-      // Two-axis sin/cos at orthogonal frequencies — cheapest deterministic
-      // approximation of a 2D Perlin field. Loop closes byte-equal because
-      // sin/cos at 2π·t==2π·0 collapse to the same value in IEEE-754.
-      // Amplitude scales with cellSize so the migration reads as ~1 cell
-      // displacement either way.
-      const amp = Math.max(2, params.cellSize) * 2.0;
-      shiftX = Math.sin(t * 2 * Math.PI)        * amp;
-      shiftY = Math.cos(t * 2 * Math.PI * 0.5)  * amp;
-      // At seam, force back to integer zero for byte-exact closure: the
-      // `cos(π)` term at t=0.5 is -1, but we only care about t=0 vs t=1.
-      if(t === 0){ shiftX = 0; shiftY = amp; /* matches t=1 collapse */ }
-      break;
-    }
-    case 'pulse': {
-      // Asymmetric Worley-style burst: sharp rise to t=0.2, slow ease-out.
-      // cellSize swells then settles. At t=0 the envelope is 0 → cellSize
-      // identical; at t=1 we collapse t to 0 too, so byte-equal seam.
-      const env = t < 0.2 ? t / 0.2 : Math.pow(1 - (t - 0.2) / 0.8, 2.5);
-      cellSize = Math.max(1, Math.round(params.cellSize + env * 3));
-      break;
-    }
-    case 'march': {
-      // Stepped subdivision through 4 discrete cell sizes. At t=1 the step
-      // would be `floor(1·4)/4 = 1` which differs from the t=0 step (0);
-      // we override at exact seam to step 0 so the loop closes.
-      const steps4 = Math.floor(t * 4);
-      const ladder = [0, 1, 2, 1]; // 4-step holder; returns to 0 at seam
-      const delta = (t === 0) ? 0 : ladder[steps4 % 4];
-      cellSize = Math.max(1, params.cellSize + delta);
-      break;
-    }
-    case 'breath':
-    default: {
-      steps = Math.round(params.steps + params.stepsSweep * pp);
-      break;
-    }
-  }
-  return { steps, cellSize, shiftX, shiftY };
-}
-
-function renderAnimationFrame(tLoop){
-  const anim = applyAnimationT(tLoop);
-  const restSteps = params.steps;
-  const restCell = params.cellSize;
-  params.steps = anim.steps;
-  params.cellSize = anim.cellSize;
-  _seedShiftX = anim.shiftX;
-  _seedShiftY = anim.shiftY;
-
-  if(params.grainAmount > 0){
-    _rng = mulberry32(seedFromT(tLoop));
-    preprocess();
-    _rng = Math.random;
-  } else if(!preprocessed){
-    preprocess();
-  }
-  if(window.PIXSource?.isVideo()){
-    window.PIXSource.advanceFrame();
-    preprocess();
-  }
-  buildGrid();
-  paint();
-
-  params.steps = restSteps;
-  params.cellSize = restCell;
-  _seedShiftX = 0; _seedShiftY = 0;
-}
-
-// Transient module globals — read by seedGrid. Module-level so the seed
-// inner loop stays branchless when the modes that don't use them are on.
-let _seedShiftX = 0, _seedShiftY = 0;
-let _magCx = 0, _magCy = 0, _magR2 = 0, _magRadius = 0, _magStrength = 0;
-
-function animationLoop(){
-  if(!params.animate) return;
-  const elapsed = performance.now() - animationStartTime;
-  renderAnimationFrame((elapsed % CYCLE_MS) / CYCLE_MS);
-  animationId = requestAnimationFrame(animationLoop);
-}
-
-function toggleAnimation(){
-  if(params.animate){
-    animationStartTime = performance.now();
-    animationLoop();
-  } else if(animationId){
-    cancelAnimationFrame(animationId); animationId = null;
-    schedule('build');
-  }
-}
-
-// ---------- WAEffect contract ----------
+// ---------- WAEffect contract (static, Pass 2B) ----------
 window.WAEffect = {
-  cycleMs: CYCLE_MS,
-  renderAt(tLoop){ renderAnimationFrame(tLoop); },
-  pauseRender(){ if(animationId){ cancelAnimationFrame(animationId); animationId = null; } },
-  resumeRender(){
-    if(params.animate && !animationId){
-      animationStartTime = performance.now();
-      animationLoop();
-    } else if(!params.animate){
-      schedule('pre');
-    }
-  },
+  cycleMs: 0,
+  renderAt(){ paint(); return cv; },
+  pauseRender(){},
+  resumeRender(){ paint(); return cv; },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
 const BUILD_KEYS = new Set([
-  'threshold','cellSize','steps','neighborhoodType','chirality',
+  'threshold','cellSize','steps','neighborhoodType',
   'surviveLowerBound','surviveUpperBound','birthLowerBound','birthUpperBound',
   'ltlSurviveLower','ltlSurviveUpper','ltlBirthLower','ltlBirthUpper',
   'mncaThreshold1','mncaThreshold2',
@@ -688,60 +468,22 @@ const BUILD_KEYS = new Set([
   'mnccThreshold3Lower','mnccThreshold3Upper',
   'mnccThreshold4Lower','mnccThreshold4Upper',
 ]);
-const PAINT_KEYS = new Set(['aliveColor','deadColor','showEffect','gapTone']);
-
-function handleMouseMove(e){
-  const r = cv.getBoundingClientRect();
-  mouseX = e.clientX - r.left;
-  mouseY = e.clientY - r.top;
-  if(params.interactive){
-    // Magnetic cohesion: map cursor from canvas space to source space and
-    // set the global pull centre. seedGrid reads these and warps the
-    // sample point by a Reynolds-style 1/r cohesion vector. Radius is in
-    // source-space pixels so the falloff matches the visible canvas
-    // regardless of zoom / fit.
-    if(!preprocessed){ return; }
-    const sw = preprocessed.width, sh = preprocessed.height;
-    const aspect = sw / sh;
-    const W = cv.width, H = cv.height;
-    let dw, dh;
-    if(W / H > aspect){ dh = H * 0.96; dw = dh * aspect; }
-    else              { dw = W * 0.96; dh = dw / aspect; }
-    const ox = (W - dw) / 2, oy = (H - dh) / 2;
-    const sx = (mouseX * (W / r.width)  - ox) / dw * sw;
-    const sy = (mouseY * (H / r.height) - oy) / dh * sh;
-    const rSrc = params.focusRadius * sw / dw;
-    _magCx = sx; _magCy = sy;
-    _magRadius = rSrc; _magR2 = rSrc * rSrc;
-    // Strength caps at ~1.5 cells of pull — strong enough to bend growth
-    // fronts, soft enough not to tear the image.
-    _magStrength = Math.max(2, params.cellSize) * 1.5;
-    if(!params.animate) schedule('build');
-  } else if(_magR2 !== 0){
-    _magR2 = 0; _magRadius = 0; _magStrength = 0;
-    if(!params.animate) schedule('build');
-  }
-}
+const PAINT_KEYS = new Set(['showEffect']);
 
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
-    if(key === 'animate'){ toggleAnimation(); return; }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
-    if(key === 'mode'){ /* anim envelope only; static = idle equivalent */ return; }
-    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
   if(window.PIXSource){
-    window.PIXSource.onChange(() => {
-      if(!params.animate) schedule('pre');
-    });
+    window.PIXSource.onChange(() => { schedule('pre'); });
   }
   if(window.WAExport){
     window.WAExport.wire({
@@ -751,7 +493,6 @@ function init(){
       rec: document.querySelector('.wa-rec'),
     });
   }
-  cv.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');

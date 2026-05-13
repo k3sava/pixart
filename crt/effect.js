@@ -74,7 +74,6 @@
 // under the 30 ms 24fps budget.
 'use strict';
 
-const CYCLE_MS = 15000;
 
 const cv = document.getElementById('cv');
 // WebGL2 with preserveDrawingBuffer so toDataURL (PNG export) and the
@@ -105,13 +104,12 @@ if(!gl){
 const params = {
   canvasSize:             600,
   patternType:            0,        // 0=Monitor, 1=LCD, 2=TV (shader index)
-  distortion:             0.04,     // bundle 0.02 → visible barrel
+  distortion:             0.04,
   dotScale:               0.93,
-  dotPitch:               4.5,      // bundle 1.59 → visible aperture grille
+  dotPitch:               4.5,
   falloff:                0.12,
-  brightnessBoost:        2.5,
   glowRadius:             0.20,
-  glowIntensity:          0.25,     // bundle 0.10 → soft phosphor bleed
+  glowIntensity:          0.25,
   blendMode:              0,        // UI option index (0=Screen,1=Light,2=HDR)
   bloomThreshold:         0.36,
   bloomIntensity:         0.45,
@@ -120,34 +118,14 @@ const params = {
   redConvergenceOffsetY:  0.01,
   blueConvergenceOffsetX: -0.01,
   blueConvergenceOffsetY: -0.01,
-  convergenceStrength:    0.10,
   showEffect:             true,
-  blurAmount:             0,
-  grainAmount:            0,
+  blur:                   0,
+  grain:                  0,
   gamma:                  1,
   blackPoint:             0,
   whitePoint:             255,
-  animate:                false,
-  interactive:            false,
   fit:                    'cover',
   bg:                     '#000000',
-  // ---- Refinement pass (2026-05-13) ----
-  // mode chooses the per-frame envelope. Each animates a distinct subset of
-  // uniforms so the *kind* of motion is recognisable before reading the
-  // label. Static-frame contract: `idle` is the rest frame.
-  mode:                   'breath',
-  // Mix between scanline-style alternating offset and a full-frame look.
-  // 0 = solid, 1 = full interlace (every other line dimmed + offset).
-  // Approximates the analog field/frame skew of NTSC/PAL displays.
-  interlace:              0,
-  // R/B beam-separation amount. 0 = perfect convergence; 1 = badly mistuned
-  // monitor (Lottes-style chromatic fringe). Stacks multiplicatively with
-  // `convergenceStrength`; this slider is the "macro" knob users reach for.
-  chromaConverge:         0,
-  // Cursor focus radius (interactive mode). Inside the circle, chromaShift
-  // increases proportional to (1 - r/R). Reads as a "magnifier" that
-  // smears the colour beams under the pointer.
-  focusRadius:            240,
 };
 if(window.PIXState) window.PIXState.hydrate(params);
 
@@ -155,9 +133,6 @@ if(window.PIXState) window.PIXState.hydrate(params);
 const UI_BLEND_TO_SHADER = [1, 3, 4]; // Screen, Lighten, HDR
 
 let gui;
-let animationId = null;
-let animationStartTime = 0;
-let animTime = 0; // current loop time in seconds for shader uniforms
 let sourceTex, preTex, crtTex, brightTex, blurH_Tex, blurV_Tex;
 let sourceFBO, preFBO, crtFBO, brightFBO, blurH_FBO, blurV_FBO;
 let preProg, crtProg, brightProg, blurProg, combineProg, copyProg;
@@ -236,45 +211,17 @@ uniform float dotPitch;
 uniform float dotScale;
 uniform float falloff;
 uniform float distortion;
-uniform float brightnessBoost;
 uniform float glowRadius;
 uniform float glowIntensity;
 uniform int patternType;
 uniform vec2 redConvergenceOffset;
 uniform vec2 blueConvergenceOffset;
-uniform float convergenceStrength;
-// Refinement uniforms (2026-05-13).
-// rollY: 0 = no retrace bar; otherwise the y-coord (0..1) of the bar centre.
-// rollHeight: bar height in [0,1] of the screen.
-// interlace: 0..1, scales the alternating-line offset+dim.
-// flickerStrength: 0..1, top-level gain on the line-darken mask.
-// flickerSeed: integer-ish phase passed through a hash to choose 1-3 lines.
-// chromaConverge: 0..1, multiplies convergenceStrength to drive R/B fringe.
-// focusCenter (uv-space), focusR2 (uv-space squared radius), focusBoost:
-//   inside the cursor circle, additional convergence proportional to
-//   (1 - r²/R²). Lottes-style local mistuning under the pointer.
-uniform float rollY;
-uniform float rollHeight;
-uniform float rollStrength;
-uniform float interlace;
-uniform float flickerStrength;
-uniform float flickerSeed;
-uniform float chromaConverge;
-uniform vec2  focusCenter;
-uniform float focusR2;
-uniform float focusBoost;
 in vec2 vTexCoord;
 out vec4 fragColor;
 
 const float outputGamma = 2.2;
-
-float hash11(float p){
-  // mulberry-ish 1D hash for the flicker line picker. Deterministic.
-  p = fract(p * 0.1031);
-  p *= p + 33.33;
-  p *= p + p;
-  return fract(p);
-}
+const float brightnessBoost = 2.5;
+const float convergenceStrength = 0.10;
 
 vec2 radialDistortion(vec2 coord){
   vec2 cc = coord - 0.5;
@@ -341,24 +288,9 @@ float getPattern(vec2 coord, float colorIndex){
   else                      return getTVPattern(coord, colorIndex);
 }
 vec3 sampleWithConvergence(vec2 uv){
-  // chromaConverge is a "macro" multiplier (default 0) layered on top of
-  // the per-axis convergenceStrength so a single slider drives the whole
-  // R/B mistune. Cursor focus adds a local quadratic bump (Lottes' trick:
-  // CRTs are uniformly badly tuned, but the eye perceives sharpness only
-  // where attention is, so local mistune feels like *less* sharpness in
-  // the focus zone — exactly the inverse-cue that tells you "this is a
-  // CRT, not a flat photo").
-  float strength = convergenceStrength * (1.0 + chromaConverge * 4.0);
-  if(focusR2 > 0.0){
-    vec2 d = uv - focusCenter;
-    float r2 = dot(d, d);
-    if(r2 < focusR2){
-      strength += focusBoost * (1.0 - r2 / focusR2);
-    }
-  }
-  float r = texture(tex0, uv + redConvergenceOffset  * strength).r;
+  float r = texture(tex0, uv + redConvergenceOffset  * convergenceStrength).r;
   float g = texture(tex0, uv).g;
-  float b = texture(tex0, uv + blueConvergenceOffset * strength).b;
+  float b = texture(tex0, uv + blueConvergenceOffset * convergenceStrength).b;
   return vec3(r, g, b);
 }
 vec3 applyGlow(vec2 coord, vec2 uv, vec3 baseColor){
@@ -404,42 +336,6 @@ void main(){
     );
     vec3 color = texColor * pattern;
     color = applyGlow(coord, uv, color);
-
-    // Interlace: alternating scanline dim. The line index is taken from
-    // pre-distortion vTexCoord so the interlace pattern stays aligned to
-    // the screen, not the curved CRT surface. Mix between solid (1.0) and
-    // a 0.6-darkened odd-line gain.
-    if(interlace > 0.0){
-      float line = floor(vTexCoord.y * resolution.y);
-      float odd  = mod(line, 2.0);
-      float gain = mix(1.0, mix(1.0, 0.6, odd), interlace);
-      color *= gain;
-    }
-
-    // Roll: a dim horizontal band sweeps top→bottom monotonically. The bar
-    // is a smooth gaussian-ish bump in the y direction; outside the bar the
-    // image is unchanged, inside it dims by rollStrength. Period matches
-    // the 15s loop so it wraps off the bottom exactly at t=1. Mimics the
-    // retrace bar of an un-locked CRT vertical sync.
-    if(rollStrength > 0.0){
-      float dy = vTexCoord.y - rollY;
-      float band = exp(-(dy * dy) / max(rollHeight * rollHeight, 1e-5));
-      color *= mix(1.0, 0.45, band * rollStrength);
-    }
-
-    // Flicker: deterministic per-line darken. flickerSeed picks 1-3 lines
-    // per frame through a 1D hash; lines with hash > 0.93 get darkened by
-    // 60% of flickerStrength. Loop-closed because flickerSeed is seeded
-    // from t and wraps to the t=0 seed at t=1.
-    if(flickerStrength > 0.0){
-      float line = floor(vTexCoord.y * resolution.y);
-      float h = hash11(line + flickerSeed * 997.0);
-      // Sparse: only the top few percent of hash space triggers. Reads as
-      // the "1-3 scanlines per frame" signature of real CRT dropouts.
-      float dropMask = step(0.93, h) * flickerStrength;
-      color *= (1.0 - 0.6 * dropMask);
-    }
-
     fragColor = pow(vec4(color, 1.0), vec4(1.0 / outputGamma));
   } else {
     fragColor = vec4(0.0, 0.0, 0.0, 1.0);
@@ -639,20 +535,9 @@ function fitCanvas(){
 }
 
 // ---------- render pipeline ----------
-// `_envelopeOwnsFrame` is true while we're inside renderAnimationFrame so
-// render() doesn't clobber the per-frame envelope state. The static
-// (toggle-from-GUI) path leaves it false → render() routes the macro
-// sliders directly to the transient globals.
-let _envelopeOwnsFrame = false;
 
 function render(){
   if(!window.PIXSource?.isReady()) return;
-  if(!_envelopeOwnsFrame){
-    _rollStrength = 0;
-    _flickerStrength = 0;
-    _interlaceMix = params.interlace;
-    _chromaConverge = params.chromaConverge;
-  }
   fitCanvas();
   const W = cv.width, H = cv.height;
   ensureSize(W, H);
@@ -668,17 +553,14 @@ function render(){
     gl.bindTexture(gl.TEXTURE_2D, sourceTex);
     gl.uniform1i(gl.getUniformLocation(p, 'tex0'), 0);
     gl.uniform2f(gl.getUniformLocation(p, 'resolution'), W, H);
-    gl.uniform1f(gl.getUniformLocation(p, 'blurAmount'),  params.blurAmount);
-    gl.uniform1f(gl.getUniformLocation(p, 'grainAmount'), params.grainAmount);
+    gl.uniform1f(gl.getUniformLocation(p, 'blurAmount'),  params.blur);
+    gl.uniform1f(gl.getUniformLocation(p, 'grainAmount'), params.grain);
     gl.uniform1f(gl.getUniformLocation(p, 'gamma'),       params.gamma);
     // Reference passes blackPoint/whitePoint in [0,1] space (its slider is
     // 0..255 but it divides by 255 in the wrapper). Mirror that here.
     gl.uniform1f(gl.getUniformLocation(p, 'blackPoint'),  params.blackPoint / 255);
     gl.uniform1f(gl.getUniformLocation(p, 'whitePoint'),  params.whitePoint / 255);
-    // Grain phase. Animated noise reads time so the loop closes only if
-    // time(t=0) === time(t=1). We pass t_loop in [0,1) so the noise hash
-    // wraps exactly.
-    gl.uniform1f(gl.getUniformLocation(p, 'time'),        animTime);
+    gl.uniform1f(gl.getUniformLocation(p, 'time'),        0.0);
   });
 
   // showEffect=false → draw preprocessed straight to screen and bail.
@@ -703,7 +585,6 @@ function render(){
     gl.uniform1f(gl.getUniformLocation(p, 'dotScale'),        params.dotScale);
     gl.uniform1f(gl.getUniformLocation(p, 'falloff'),         params.falloff);
     gl.uniform1f(gl.getUniformLocation(p, 'distortion'),      params.distortion);
-    gl.uniform1f(gl.getUniformLocation(p, 'brightnessBoost'), params.brightnessBoost);
     gl.uniform1f(gl.getUniformLocation(p, 'glowRadius'),      params.glowRadius);
     gl.uniform1f(gl.getUniformLocation(p, 'glowIntensity'),   params.glowIntensity);
     gl.uniform1i(gl.getUniformLocation(p, 'patternType'),     params.patternType | 0);
@@ -711,21 +592,6 @@ function render(){
       params.redConvergenceOffsetX, params.redConvergenceOffsetY);
     gl.uniform2f(gl.getUniformLocation(p, 'blueConvergenceOffset'),
       params.blueConvergenceOffsetX, params.blueConvergenceOffsetY);
-    gl.uniform1f(gl.getUniformLocation(p, 'convergenceStrength'), params.convergenceStrength);
-    // Refinement uniforms — read from transient module globals that the
-    // animation envelope sets each frame. When animate=false they are all
-    // zero so the static path matches the original pipeline byte-for-byte
-    // (regression-safe).
-    gl.uniform1f(gl.getUniformLocation(p, 'rollY'),           _rollY);
-    gl.uniform1f(gl.getUniformLocation(p, 'rollHeight'),      _rollHeight);
-    gl.uniform1f(gl.getUniformLocation(p, 'rollStrength'),    _rollStrength);
-    gl.uniform1f(gl.getUniformLocation(p, 'interlace'),       _interlaceMix);
-    gl.uniform1f(gl.getUniformLocation(p, 'flickerStrength'), _flickerStrength);
-    gl.uniform1f(gl.getUniformLocation(p, 'flickerSeed'),     _flickerSeed);
-    gl.uniform1f(gl.getUniformLocation(p, 'chromaConverge'),  _chromaConverge);
-    gl.uniform2f(gl.getUniformLocation(p, 'focusCenter'),     _focusCx, _focusCy);
-    gl.uniform1f(gl.getUniformLocation(p, 'focusR2'),         _focusR2);
-    gl.uniform1f(gl.getUniformLocation(p, 'focusBoost'),      _focusBoost);
   });
 
   // Pass 3 — bright pass.
@@ -771,6 +637,7 @@ function render(){
     const idx = (params.blendMode | 0) % UI_BLEND_TO_SHADER.length;
     gl.uniform1i(gl.getUniformLocation(p, 'blendMode'), UI_BLEND_TO_SHADER[idx]);
   });
+  gl.finish();
 }
 
 function schedule(){
@@ -779,132 +646,12 @@ function schedule(){
   requestAnimationFrame(() => { rafQueued = false; render(); });
 }
 
-// ---------- animation ----------
-//
-// We expose a single seamless 15s loop. Two things animate:
-//   - animTime drives the grain hash, so t=0 and t=1 produce the same hash
-//     (passed as t_loop ∈ [0,1)).
-//   - convergenceStrength gets a subtle breath via (1 + 0.5·sin(2π·t)) of
-//     the user's value, mimicking the "wobble" of a real CRT's electron
-//     beam. cos/sin are exact at the loop endpoints so byte-equal closure
-//     is preserved.
-// Transient module globals — read by the CRT pass each frame. Module-level
-// so the static (animate=false) path skips them with zero overhead.
-let _rollY = 0, _rollHeight = 0.05, _rollStrength = 0;
-let _interlaceMix = 0;
-let _flickerStrength = 0, _flickerSeed = 0;
-let _chromaConverge = 0;
-let _focusCx = 0, _focusCy = 0, _focusR2 = 0, _focusBoost = 0;
-
-// Wrap t to [0,1) so cos/sin at the seam collapse to the same IEEE-754
-// value. Same closure trick used by edge/cellular.
-function wrapT(t){ let w = t - Math.floor(t); if(w === 1) w = 0; return w; }
-
-// Modes (2026-05-13).
-//   idle    — no animation. Static = the reference's landing frame.
-//   breath  — the original animTime grain phase (near-static, calm).
-//   roll    — vertical retrace bar sweeps top→bottom monotonically. The bar
-//             y maps t∈[0,1) to [-barH .. 1+barH], so the bar enters from
-//             above at t=0 and exits the bottom at t=1; both endpoints have
-//             the bar fully off-screen → byte-equal.
-//   flicker — sparse line dropouts, 1-3 lines per frame, seeded by t.
-//             At t=1 we wrap to t=0 so the hash seed matches.
-//   drift   — horizontal beam-phase wander: chromaConverge oscillates on a
-//             slow sin so the R/B fringe drifts ±. Sin endpoints exact.
-function applyAnimationT(tLoop){
-  const t = wrapT(tLoop);
-  animTime = t;
-  // Defaults: everything off so the static contract holds when mode is idle.
-  _rollY = 0; _rollHeight = 0.05; _rollStrength = 0;
-  _interlaceMix = params.interlace;
-  _flickerStrength = 0; _flickerSeed = 0;
-  _chromaConverge = params.chromaConverge;
-  switch(params.mode){
-    case 'idle': break;
-    case 'roll': {
-      // Bar enters above the top (y=-barH) and exits below the bottom
-      // (y=1+barH) over the cycle. At t=0 and t=1 the bar is fully outside
-      // the screen, so the visible output is byte-equal at the seam.
-      _rollHeight  = 0.06;
-      _rollStrength = 1.0;
-      _rollY = -_rollHeight + t * (1 + 2 * _rollHeight);
-      if(t === 0){ _rollStrength = 0; /* exact seam: bar invisible */ }
-      break;
-    }
-    case 'flicker': {
-      // Per-frame deterministic line picker. Seed is an integer derived
-      // from t · 99991 (prime, sparse) so successive frames pick different
-      // lines, but t=1 wraps to t=0 → same seed → same picked lines →
-      // byte-equal closure.
-      _flickerStrength = 1.0;
-      _flickerSeed = Math.floor(t * 99991);
-      break;
-    }
-    case 'drift': {
-      // Chromatic phase wander on a slow sin. Amplitude ±0.6 of the macro
-      // chromaConverge slider; default chromaConverge=0 yields ±0.12 of
-      // an absolute fringe, soft enough to read as "the colour beams are
-      // breathing" rather than a glitch.
-      const wob = Math.sin(t * 2 * Math.PI) * 0.6;
-      _chromaConverge = params.chromaConverge + 0.2 + wob * 0.2;
-      if(t === 0){ _chromaConverge = params.chromaConverge + 0.2; /* match t=1 */ }
-      break;
-    }
-    case 'breath':
-    default: {
-      // Original behaviour: gentle grain phase + a barely-noticeable
-      // convergence breath. Kept the same so existing presets render
-      // identically to the prior version.
-      break;
-    }
-  }
-  // Cursor focus (interactive). Set in mouse handler; pass through here so
-  // the animate-off branch also picks it up via schedule()/render().
-  if(!params.interactive){
-    _focusR2 = 0; _focusBoost = 0;
-  }
-}
-
-function renderAnimationFrame(tLoop){
-  applyAnimationT(tLoop);
-  if(window.PIXSource?.isVideo()){
-    window.PIXSource.advanceFrame();
-    needsSourceUpload = true;
-  }
-  _envelopeOwnsFrame = true;
-  render();
-  _envelopeOwnsFrame = false;
-  // Flush the WebGL command queue so toDataURL (and the harness's
-  // renderAt()===renderAt() byte-equal check) reads the freshly-drawn
-  // framebuffer rather than a stale one. preserveDrawingBuffer keeps the
-  // back-buffer addressable; gl.finish guarantees the GPU is done.
-  gl.finish();
-}
-
-function animationLoop(){
-  if(!params.animate) return;
-  const elapsed = performance.now() - animationStartTime;
-  renderAnimationFrame((elapsed % CYCLE_MS) / CYCLE_MS);
-  animationId = requestAnimationFrame(animationLoop);
-}
-function toggleAnimation(){
-  if(params.animate){ animationStartTime = performance.now(); animationLoop(); }
-  else if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
-}
-
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: CYCLE_MS,
-  renderAt(tLoop){ renderAnimationFrame(tLoop); },
-  pauseRender(){ if(animationId){ cancelAnimationFrame(animationId); animationId = null; } },
-  resumeRender(){
-    if(params.animate && !animationId){
-      animationStartTime = performance.now();
-      animationLoop();
-    } else {
-      schedule();
-    }
-  },
+  cycleMs: 0,
+  renderAt(){ render(); gl.finish(); },
+  pauseRender(){},
+  resumeRender(){ render(); gl.finish(); },
 };
 
 // ---------- init ----------
@@ -912,19 +659,18 @@ function init(){
   initGL();
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
-    if(key === 'animate'){ toggleAnimation(); return; }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       needsSourceUpload = true;
-      if(!params.animate) schedule();
+      schedule();
       return;
     }
-    if(!params.animate) schedule();
+    schedule();
   });
   if(window.PIXSource){
     window.PIXSource.onChange(() => {
       needsSourceUpload = true;
-      if(!params.animate) schedule();
+      schedule();
     });
   }
   if(window.WAExport){
@@ -936,25 +682,6 @@ function init(){
     });
   }
   window.addEventListener('resize', () => { schedule(); });
-  cv.addEventListener('mousemove', (e) => {
-    if(!params.interactive){
-      if(_focusR2 !== 0){ _focusR2 = 0; _focusBoost = 0; schedule(); }
-      return;
-    }
-    const r = cv.getBoundingClientRect();
-    // UV-space (0..1) centre + radius for the shader. Convert focusRadius
-    // (screen px) to uv-space by dividing by the smaller canvas dimension
-    // so the circle stays round on non-square canvases.
-    _focusCx = (e.clientX - r.left) / r.width;
-    _focusCy = 1 - (e.clientY - r.top) / r.height; // flip y to match GL uv
-    const rUV = params.focusRadius / Math.min(r.width, r.height);
-    _focusR2 = rUV * rUV;
-    // Boost adds up to +1.5× the per-axis convergence strength under the
-    // cursor — strong enough to read as "the cursor smears the colour
-    // beams" without overwhelming the rest of the frame.
-    _focusBoost = 1.5;
-    if(!params.animate) schedule();
-  });
   fitCanvas();
   schedule();
 }

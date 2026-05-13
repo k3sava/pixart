@@ -67,8 +67,8 @@
     </div>
     <!-- effect-specific control rows -->
     <div class="wg-row wg-slider" data-key="canvasSize"         data-min="100" data-max="1000" data-step="10"><div class="wg-name">Canvas size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="blurAmount"         data-min="0"   data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="grainAmount"        data-min="0"   data-max="1"    data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="blur"               data-min="0"   data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="grain"              data-min="0"   data-max="1"    data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
     <div class="wg-row wg-slider" data-key="gamma"              data-min="0.1" data-max="2"    data-step="0.1"><div class="wg-name">Gamma</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
     <div class="wg-row wg-slider" data-key="blackPoint"         data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Black point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="whitePoint"         data-min="0"   data-max="255"  data-step="1"><div class="wg-name">White point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
@@ -77,19 +77,6 @@
     <div class="wg-row wg-slider" data-key="maxDotSize"         data-min="0"   data-max="40"   data-step="1"><div class="wg-name">Max dot size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="cornerRadius"       data-min="0"   data-max="20"   data-step="1"><div class="wg-name">Corner radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="stepSize"           data-min="3"   data-max="20"   data-step="1"><div class="wg-name">Step size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="thresholdSweep"     data-min="0"   data-max="255"  data-step="5"><div class="wg-name">Sweep depth</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-select" data-key="kernelFamily">
-      <div class="wg-name">Kernel</div>
-      <div class="wg-widget">
-        <select>
-          <option value="sobel">sobel</option>
-          <option value="scharr">scharr</option>
-          <option value="prewitt">prewitt</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="haloStrength" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Halo</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-color"  data-key="edgeColor"><div class="wg-name">Edge color</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
   </div>
 </aside>
