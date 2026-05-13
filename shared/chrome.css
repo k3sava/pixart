@@ -364,30 +364,37 @@ html[data-theme="zen"] .theme-switcher-pill:hover{ background:hsla(92,8%,48%,.1)
    neutral on purpose — they remain readable across themes.
 */
 
-/* Custom checkbox base (override browser default so themes can shape it) */
+/* Toggle switch base (replaces the previous checkbox visual). The native
+   <input type=checkbox> stays — themes can still shape this via tokens. */
 .wg input[type="checkbox"]{
   appearance:none; -webkit-appearance:none;
-  width:14px; height:14px;
+  width:34px; height:18px;
   margin:0;
-  border:1px solid var(--panel-border);
-  border-radius:3px;
-  background:var(--input-bg);
+  border:1px solid var(--input-border);
+  border-radius:999px;
+  background:var(--slider-track);
   cursor:pointer;
   display:inline-block;
   position:relative;
   vertical-align:middle;
+  transition:background .18s ease, border-color .18s ease;
+}
+.wg input[type="checkbox"]::after{
+  content:""; position:absolute;
+  left:1px; top:1px;
+  width:14px; height:14px;
+  border-radius:50%;
+  background:var(--text);
+  transition:transform .18s ease, background .18s ease;
+  box-shadow:0 1px 2px rgba(0,0,0,.18);
 }
 .wg input[type="checkbox"]:checked{
   background:var(--accent);
   border-color:var(--accent);
 }
 .wg input[type="checkbox"]:checked::after{
-  content:""; position:absolute;
-  left:3px; top:0px;
-  width:5px; height:9px;
-  border:solid #fff;
-  border-width:0 2px 2px 0;
-  transform:rotate(45deg);
+  transform:translateX(16px);
+  background:var(--bg);
 }
 
 /* Both BRUTALIST and TERMINAL are zero-radius aesthetics by design. The
@@ -430,14 +437,18 @@ html[data-theme="brutalist"] .wg-track{
 }
 html[data-theme="brutalist"] .wg-fill{ background:#000 }
 html[data-theme="brutalist"] .wg-track::after{ background:#d946ef; width:3px }
+/* Brutalist toggle: sharp 2px black border, magenta when on, black knob. */
 html[data-theme="brutalist"] .wg input[type="checkbox"]{
-  border:2px solid #000; border-radius:0; background:#fff;
+  border:2px solid #000; background:#fff;
+}
+html[data-theme="brutalist"] .wg input[type="checkbox"]::after{
+  background:#000; box-shadow:none;
 }
 html[data-theme="brutalist"] .wg input[type="checkbox"]:checked{
   background:#d946ef; border-color:#000;
 }
 html[data-theme="brutalist"] .wg input[type="checkbox"]:checked::after{
-  border-color:#000;
+  background:#000;
 }
 html[data-theme="brutalist"] .wg{ border:2px solid #000; border-radius:0; box-shadow:6px 6px 0 #000 }
 html[data-theme="brutalist"] .wg-collapse{ border:2px solid #000; border-radius:0; background:#fff; color:#000; box-shadow:2px 2px 0 #000 }
@@ -463,8 +474,10 @@ html[data-theme="editorial"] .effect-nav a.active{
 html[data-theme="editorial"] .wg-track{ background:rgba(22,20,12,.05); border:1px solid rgba(22,20,12,.18); border-radius:2px }
 html[data-theme="editorial"] .wg-fill{ background:rgba(22,20,12,.35) }
 html[data-theme="editorial"] .wg-track::after{ background:#d4a040 }
-html[data-theme="editorial"] .wg input[type="checkbox"]{ border:1px solid rgba(22,20,12,.25); border-radius:2px; background:transparent }
+html[data-theme="editorial"] .wg input[type="checkbox"]{ border:1px solid rgba(22,20,12,.25); background:rgba(22,20,12,.06); }
+html[data-theme="editorial"] .wg input[type="checkbox"]::after{ background:#16140c; }
 html[data-theme="editorial"] .wg input[type="checkbox"]:checked{ background:#d4a040; border-color:#d4a040 }
+html[data-theme="editorial"] .wg input[type="checkbox"]:checked::after{ background:#f8f3ea; }
 
 /* --- TERMINAL --- dashed borders, mono, phosphor amber, brackets --- */
 html[data-theme="terminal"] .wa-actions button,
@@ -493,9 +506,10 @@ html[data-theme="terminal"] .effect-nav a{ padding:4px 6px; }
 html[data-theme="terminal"] .wg-track{ background:rgba(255,209,102,.04); border:1px dashed rgba(255,209,102,.4); border-radius:0; height:18px }
 html[data-theme="terminal"] .wg-fill{ background:rgba(255,209,102,.35) }
 html[data-theme="terminal"] .wg-track::after{ background:#ffd166 }
-html[data-theme="terminal"] .wg input[type="checkbox"]{ border:1px dashed rgba(255,209,102,.5); border-radius:0; background:transparent }
-html[data-theme="terminal"] .wg input[type="checkbox"]:checked{ background:#ffd166; border-color:#ffd166; border-style:solid }
-html[data-theme="terminal"] .wg input[type="checkbox"]:checked::after{ border-color:#0d1117 }
+html[data-theme="terminal"] .wg input[type="checkbox"]{ border:1px dashed rgba(255,209,102,.5); background:rgba(38,255,157,.06); }
+html[data-theme="terminal"] .wg input[type="checkbox"]::after{ background:#9eff00; }
+html[data-theme="terminal"] .wg input[type="checkbox"]:checked{ background:#9eff00; border-color:#9eff00; border-style:solid }
+html[data-theme="terminal"] .wg input[type="checkbox"]:checked::after{ background:#020806; }
 html[data-theme="terminal"] .wg{ border:1px dashed rgba(255,209,102,.4); border-radius:0; background:#0d1117 }
 html[data-theme="terminal"] .wg-collapse{ background:#0d1117; border:1px dashed rgba(255,209,102,.5); border-radius:0; color:#ffd166 }
 
@@ -520,8 +534,10 @@ html[data-theme="zen"] .effect-nav a.active{
 html[data-theme="zen"] .wg-track{ background:rgba(58,58,50,.06); border:1px solid rgba(58,58,50,.12); border-radius:999px; height:14px }
 html[data-theme="zen"] .wg-fill{ background:rgba(58,58,50,.25); border-radius:999px }
 html[data-theme="zen"] .wg-track::after{ background:#1f1f1c; width:3px; border-radius:2px }
-html[data-theme="zen"] .wg input[type="checkbox"]{ border:1px solid rgba(58,58,50,.25); border-radius:999px; background:transparent }
+html[data-theme="zen"] .wg input[type="checkbox"]{ border:1px solid rgba(58,58,50,.25); background:rgba(58,58,50,.08); }
+html[data-theme="zen"] .wg input[type="checkbox"]::after{ background:#3a3a32; }
 html[data-theme="zen"] .wg input[type="checkbox"]:checked{ background:#3a3a32; border-color:#3a3a32 }
+html[data-theme="zen"] .wg input[type="checkbox"]:checked::after{ background:#ecead8; }
 html[data-theme="zen"] .wg{ border:1px solid rgba(58,58,50,.12); border-radius:14px }
 html[data-theme="zen"] .wg-collapse{ border:1px solid rgba(58,58,50,.25); border-radius:999px; background:transparent; color:#3a3a32 }
 
