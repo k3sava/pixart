@@ -308,7 +308,7 @@ function paint(){
 // Pure renderAt(t01) snapshots the user's base values for the modulated
 // control, applies the active mode's cosine envelope, rebuilds, paints, then
 // restores. Same pattern as bevel/effect.js.
-const CYCLE_MS = 15000;
+const CYCLE_MS = 20000;
 let animationId = null;
 let animationStartTime = 0;
 let mouseX = 0, mouseY = 0, hasMouse = false;

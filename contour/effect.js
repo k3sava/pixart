@@ -39,7 +39,7 @@
 // cursor is the cartographer's density + softness dial.
 'use strict';
 
-const CYCLE_MS = 15000;
+const CYCLE_MS = 20000;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');

@@ -383,7 +383,7 @@ function loadDotTexture(file){
 // renders, and rolls back any param mutation so the GUI display stays stable.
 // Scatter modulates paintOpts (paint-time only) so each frame is a paint, not
 // a rebuild — keeps the 24-frame mean < 30ms even at full default density.
-const CYCLE_MS = 15000;
+const CYCLE_MS = 20000;
 let animationId = null;
 let animationStartTime = 0;
 let mouseX = 0, mouseY = 0, hasMouse = false;

@@ -213,7 +213,7 @@ function paint(){
 }
 
 // ---------- animation (matches bevel pattern) ----------
-const CYCLE_MS = 15000;
+const CYCLE_MS = 20000;
 let animationId = null;
 let animationStartTime = 0;
 let mouseX = 0, mouseY = 0, hasMouse = false;
