@@ -44,7 +44,6 @@
 <aside class="wg" id="panel">
   <div class="wg-title" role="button" tabindex="0">Controls</div>
   <div class="wg-body">
-    <div class="wg-row wg-toggle" data-key="showEffect"><div class="wg-name">Show effect</div><div class="wg-widget"><label class="wg-switch"><input type="checkbox"><span class="wg-switch-track"></span></label></div></div>
     <div class="wg-row wg-file" data-key="source" data-handler="pix-source">
       <div class="wg-name">Source</div>
       <div class="wg-widget">
@@ -65,6 +64,9 @@
       <div class="wg-name">Background</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="flow">flow</option><option value="drift">drift</option></select></div></div>
+    <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-select" data-key="colorMode">
       <div class="wg-name">Colour mode</div>
       <div class="wg-widget">
@@ -83,10 +85,9 @@
     <div class="wg-row wg-slider" data-key="flowStrength" data-min="0" data-max="2" data-step="0.05"><div class="wg-name">Flow strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
     <div class="wg-row wg-slider" data-key="lineWidth"   data-min="0.3" data-max="3" data-step="0.1"><div class="wg-name">Line width</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
     <div class="wg-row wg-slider" data-key="alpha"       data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Opacity</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="flow">flow</option><option value="drift">drift</option></select></div></div>
-    <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-color"  data-key="inkColor"><div class="wg-name">Ink colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+    <div class="wg-row wg-toggle" data-key="showEffect"><div class="wg-name">Show effect</div><div class="wg-widget"><label class="wg-switch"><input type="checkbox"><span class="wg-switch-track"></span></label></div></div>
+  
   </div>
 </aside>
 
