@@ -288,6 +288,15 @@ body.wa-effect{ background:#000; }
 }
 .wa-actions button:hover{ background:var(--text); color:var(--bg); border-color:var(--text) }
 .wa-actions button[disabled]{ opacity:.45; cursor:wait }
+/* Icon buttons (png / mp4 export) — SVG inside; centre and remove inline-block gaps. */
+.wa-actions button svg{ display:block; }
+.wa-actions button#export-png,
+.wa-actions button#export-mp4{
+  padding:5px 10px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
 /* Recording state on the mp4 button — pulsing red dot prefix and a
    subtle border tint so users know capture is in progress. */
 .wa-actions button.recording{

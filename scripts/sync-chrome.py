@@ -49,10 +49,42 @@ def sync_one(slug: str) -> str:
         html,
     )
 
-    # 4) video → mp4
+    # 4) video → mp4 (legacy; the icon swap below replaces both png/mp4 text).
     html = re.sub(
         r'(<button id="export-mp4"[^>]*>)video(</button>)',
         r'\1mp4\2',
+        html,
+    )
+
+    # 5) text labels (png / mp4) → inline SVG icons. Both inherit colour
+    #    via currentColor so themes cascade. Icons read as image-download
+    #    and film-strip-with-play.
+    PNG_ICON = (
+        '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" '
+        'fill="none" stroke="currentColor" stroke-width="1.4" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<rect x="2.5" y="3" width="11" height="8" rx="1"/>'
+        '<path d="M2.5 9.5 l3-2.5 2.5 2 2-1.5 3.5 2.5"/>'
+        '<circle cx="6" cy="6" r="1" fill="currentColor" stroke="none"/>'
+        '<path d="M8 12 v3 m0 0 l-1.5 -1.5 m1.5 1.5 l1.5 -1.5"/>'
+        '</svg>'
+    )
+    MP4_ICON = (
+        '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" '
+        'fill="none" stroke="currentColor" stroke-width="1.4" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<rect x="2" y="4" width="9.5" height="8" rx="1"/>'
+        '<path d="M11.5 6.5 l3 -1.5 v6 l-3 -1.5 z" fill="currentColor"/>'
+        '</svg>'
+    )
+    html = re.sub(
+        r'(<button id="export-png"[^>]*>)png(</button>)',
+        lambda m: m.group(1) + PNG_ICON + m.group(2),
+        html,
+    )
+    html = re.sub(
+        r'(<button id="export-mp4"[^>]*>)mp4(</button>)',
+        lambda m: m.group(1) + MP4_ICON + m.group(2),
         html,
     )
 

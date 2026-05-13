@@ -166,12 +166,15 @@
   function wire({canvas, name, pngBtn, mp4Btn, rec}){
     if(pngBtn) pngBtn.addEventListener('click', () => exportPNG(canvas, name));
     if(!mp4Btn) return;
-    const origLabel = mp4Btn.textContent;
+    // origHTML captured below preserves any SVG icon child.
     // The .wa-rec strip (recording dot + progress bar) is the visual cue
     // that recording is in progress. Resolve it from the document if not
     // passed in so existing callers without `rec` still get the feedback.
     if(!rec) rec = document.querySelector('.wa-rec');
     const recBar = rec?.querySelector('.bar');
+    // Capture innerHTML (not textContent) so an SVG icon inside the button
+    // survives the recording-state text swap and restores cleanly.
+    const origHTML = mp4Btn.innerHTML;
     mp4Btn.addEventListener('click', async () => {
       if(mp4Btn.dataset.busy) return;
       mp4Btn.dataset.busy = '1';
@@ -190,7 +193,7 @@
         mp4Btn.disabled = false;
         mp4Btn.classList.remove('recording');
         mp4Btn.removeAttribute('aria-pressed');
-        mp4Btn.textContent = origLabel;
+        mp4Btn.innerHTML = origHTML;
         delete mp4Btn.dataset.busy;
         if(rec){ rec.classList.remove('visible'); }
         if(recBar){ recBar.style.width = '0%'; }
