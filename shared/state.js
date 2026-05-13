@@ -30,7 +30,7 @@
   // letterboxing in the bg colour. Width:Height pairs.
   const RATIOS = {
     square:    [1, 1],
-    portrait:  [3, 4],
+    portrait:  [9, 16],
     landscape: [16, 9],
   };
 
