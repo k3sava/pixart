@@ -84,11 +84,17 @@
     }
     _bindFile(row, key){
       // File input row (image/video). data-handler="pix-source" pipes through PIXSource.
+      // The native <input type=file> is display:none — its job is purely to host the
+      // file picker. The visible label and `+` button proxy clicks to it.
       const input = row.querySelector('input[type=file]');
       const label = row.querySelector('.wg-file-label');
+      const openBtn = row.querySelector('.wg-file-open');
       const sampleBtn = row.querySelector('.wg-shuffle');
       const write = (v) => { this.params[key] = v; this.emit(key); };
       row._write = write;
+      const openPicker = () => input?.click();
+      label?.addEventListener('click', openPicker);
+      openBtn?.addEventListener('click', openPicker);
       input?.addEventListener('change', () => {
         const f = input.files && input.files[0];
         if(!f) return;
@@ -97,6 +103,10 @@
           window.PIXSource.loadFile(f).catch(err => console.warn(err));
         }
         write(f.name);
+        // Native <input type=file> won't re-fire `change` if the same filename
+        // is picked twice. Reset the value so consecutive picks of the same
+        // file still trigger a reload (useful when re-cropping externally).
+        input.value = '';
       });
       sampleBtn?.addEventListener('click', () => {
         if(window.PIXSource && row.dataset.handler === 'pix-source'){

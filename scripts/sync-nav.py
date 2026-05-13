@@ -46,10 +46,12 @@ def render_nav(active_slug: str) -> str:
     prev_slug = EFFECTS[prev_idx]
     next_slug = EFFECTS[next_idx]
     return (
+        # The left-side breadcrumb already grounds the page in "pixart" — repeating
+        # the word here was noise. The home link survives as a small grid glyph
+        # ("⊞") with a tooltip so the back-to-grid affordance is still discoverable.
         '<nav class="effect-nav compact" aria-label="Effect navigation">\n'
         f'    <a class="effect-nav-arrow" href="../{prev_slug}/" title="Previous effect ({prev_slug})" aria-label="Previous">‹</a>\n'
-        '    <a href="../" class="effect-nav-home" title="All effects">pixart</a>\n'
-        '    <span class="effect-nav-sep">/</span>\n'
+        '    <a href="../" class="effect-nav-home" title="All effects" aria-label="All effects">⊞</a>\n'
         f'    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">\n'
         f'      <span class="effect-nav-name">{active_slug}</span>\n'
         '      <span class="effect-nav-chev">›</span>\n'
@@ -59,7 +61,7 @@ def render_nav(active_slug: str) -> str:
     )
 
 
-NAV_RE = re.compile(r'<nav class="effect-nav[^"]*">.*?</nav>', re.DOTALL)
+NAV_RE = re.compile(r'<nav\s+class="effect-nav[^"]*"[^>]*>.*?</nav>', re.DOTALL)
 
 
 def sync_one(slug: str) -> str:
