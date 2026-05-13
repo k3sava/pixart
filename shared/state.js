@@ -227,11 +227,14 @@
   paintPlaceholder();
   notify();
 
-  // Auto-load the most recent source on session resume; fall back to sample 0
-  // if available. Failures are silent — the placeholder stays.
-  const last = read('sourceUrl', null);
-  const boot = last ? loadUrl(last).catch(() => loadUrl(SAMPLES[0])) : loadUrl(SAMPLES[0]);
-  boot.catch(() => {});
+  // Every fresh page load starts on portrait.jpg. The prior behaviour of
+  // resuming whatever `pix.sourceUrl` localStorage held meant each effect's
+  // page could open with a different image, depending on which sample the
+  // user last cycled to on each page — operator-visible drift. With the
+  // shared blob URL also unrecoverable after reload (object URLs die with
+  // the document), there's nothing useful to resume. Cycle/upload during
+  // the session still works as expected.
+  loadUrl(SAMPLES[0]).catch(() => {});
 
   // Drag and drop anywhere on the page.
   document.addEventListener('dragover', (e) => { e.preventDefault(); });
