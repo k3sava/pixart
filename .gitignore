@@ -1,0 +1,5 @@
+node_modules/
+.firecrawl/
+.playwright-mcp/
+*.log
+.DS_Store
