@@ -162,14 +162,16 @@
     overflow:hidden;
     background:#0a0a0a;
   }
-  .pix-card-canvas img{
+  .pix-card-canvas img,
+  .pix-card-canvas video{
     display:block;
     width:100%; height:100%;
     object-fit:cover;
     filter:brightness(.94) saturate(.96);
     transition:filter .3s ease, transform 8s ease;
   }
-  .pix-card:hover .pix-card-canvas img{
+  .pix-card:hover .pix-card-canvas img,
+  .pix-card:hover .pix-card-canvas video{
     filter:brightness(1.02) saturate(1.05);
     transform:scale(1.015);
   }
@@ -363,7 +365,10 @@
       a.setAttribute('role', 'listitem');
       a.innerHTML = `
         <div class="pix-card-canvas">
-          <img src="assets/thumbs/${e.slug}.webp" alt="${e.name} preview" loading="lazy" decoding="async">
+          <video autoplay loop muted playsinline preload="metadata"
+                 poster="assets/thumbs/${e.slug}.webp"
+                 src="assets/previews/${e.slug}.mp4"
+                 aria-label="${e.name} preview"></video>
         </div>
         <div class="pix-card-meta">
           <span class="pix-card-name">${e.name}</span>
