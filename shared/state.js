@@ -245,6 +245,7 @@
     cycleSample,
     onChange,
     setParam,
+    applyRatio,
     params,
     get width(){ return natW; },
     get height(){ return natH; },

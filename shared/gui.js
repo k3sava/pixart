@@ -58,8 +58,20 @@
         this.el.classList.toggle('collapsed', !!collapsed);
         document.body.classList.toggle('panel-collapsed', !!collapsed);
         handle.setAttribute('aria-label', collapsed ? 'Expand controls' : 'Collapse controls');
-        // Effects size to cv.clientWidth — kick a resize so they re-rasterize.
-        window.dispatchEvent(new Event('resize'));
+        // The .wa-stage right inset toggles via CSS the moment .panel-collapsed
+        // flips, so stage.clientWidth is already new. But the panel itself
+        // slides under a 220ms transition — schedule a second resize after
+        // the slide settles in case any effect's layout depends on the slot
+        // having fully cleared.
+        const kick = () => {
+          // Re-run applyRatio so the canvas style W/H pick up the new
+          // stage.clientWidth AND fire the resize event that effect.js'
+          // fitCanvas() listens to.
+          window.PIXSource?.applyRatio?.();
+          window.dispatchEvent(new Event('resize'));
+        };
+        kick();
+        setTimeout(kick, 260);
       };
       apply(localStorage.getItem(KEY) === '1');
       handle.addEventListener('click', () => {

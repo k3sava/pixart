@@ -288,6 +288,24 @@ body.wa-effect{ background:#000; }
 }
 .wa-actions button:hover{ background:var(--text); color:var(--bg); border-color:var(--text) }
 .wa-actions button[disabled]{ opacity:.45; cursor:wait }
+/* Recording state on the mp4 button — pulsing red dot prefix and a
+   subtle border tint so users know capture is in progress. */
+.wa-actions button.recording{
+  border-color:#ff3b30;
+  color:#ff3b30;
+  opacity:1; cursor:wait;
+  padding-left:18px;
+  position:relative;
+}
+.wa-actions button.recording::before{
+  content:""; position:absolute;
+  left:8px; top:50%;
+  width:6px; height:6px;
+  border-radius:50%;
+  background:#ff3b30;
+  transform:translateY(-50%);
+  animation:wa-pulse 1s ease-in-out infinite;
+}
 
 /* ---------- THEME SWITCHER ---------- */
 .theme-switcher-container{

@@ -163,26 +163,44 @@
     });
   }
 
-  function wire({canvas, name, pngBtn, mp4Btn}){
+  function wire({canvas, name, pngBtn, mp4Btn, rec}){
     if(pngBtn) pngBtn.addEventListener('click', () => exportPNG(canvas, name));
     if(!mp4Btn) return;
     const origLabel = mp4Btn.textContent;
+    // The .wa-rec strip (recording dot + progress bar) is the visual cue
+    // that recording is in progress. Resolve it from the document if not
+    // passed in so existing callers without `rec` still get the feedback.
+    if(!rec) rec = document.querySelector('.wa-rec');
+    const recBar = rec?.querySelector('.bar');
     mp4Btn.addEventListener('click', async () => {
       if(mp4Btn.dataset.busy) return;
       mp4Btn.dataset.busy = '1';
-      mp4Btn.textContent = 'rendering…';
+      mp4Btn.classList.add('recording');
+      mp4Btn.setAttribute('aria-pressed', 'true');
+      mp4Btn.textContent = 'recording 0%';
       mp4Btn.disabled = true;
+      if(rec){ rec.classList.add('visible'); }
+      if(recBar){ recBar.style.width = '0%'; }
+      const setProgress = (p) => {
+        const pct = Math.round(Math.max(0, Math.min(1, p)) * 100);
+        mp4Btn.textContent = `recording ${pct}%`;
+        if(recBar) recBar.style.width = pct + '%';
+      };
       const cleanup = () => {
         mp4Btn.disabled = false;
+        mp4Btn.classList.remove('recording');
+        mp4Btn.removeAttribute('aria-pressed');
         mp4Btn.textContent = origLabel;
         delete mp4Btn.dataset.busy;
+        if(rec){ rec.classList.remove('visible'); }
+        if(recBar){ recBar.style.width = '0%'; }
       };
       try {
         if(typeof VideoEncoder !== 'undefined'){
           await exportVideoOffline(canvas, name, {
+            onProgress: setProgress,
             onDone: cleanup,
             onError: async (e) => {
-              // Offline path failed — fall back to real-time MediaRecorder.
               try { await exportVideoRealtime(canvas, name); } catch(e2){ alert('Export failed: ' + (e2.message || e2)); }
               cleanup();
             },
