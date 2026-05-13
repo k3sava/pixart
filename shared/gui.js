@@ -80,17 +80,48 @@
       else if(row.classList.contains('wg-file')) this._bindFile(row, key);
     }
     _bindSelect(row, key){
+      // Each wg-select row gets rendered as a row of radio "pills" so a
+      // choice is one click and an instant visible change — no dropdown,
+      // no select-and-confirm step. The original <select> stays in the DOM
+      // (display:none) as the source of truth for accessibility, form
+      // serialisation and existing tests; the pills mirror its value.
       const select = row.querySelector('select');
       if(!select) return;
+      const widget = row.querySelector('.wg-widget') || row;
+      let pillGroup = widget.querySelector('.wg-pills');
+      if(!pillGroup){
+        pillGroup = document.createElement('div');
+        pillGroup.className = 'wg-pills';
+        pillGroup.setAttribute('role', 'radiogroup');
+        pillGroup.setAttribute('aria-label', key);
+        for(const opt of select.options){
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'wg-pill';
+          b.dataset.value = opt.value;
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', 'false');
+          b.textContent = opt.textContent || opt.value;
+          pillGroup.appendChild(b);
+        }
+        widget.appendChild(pillGroup);
+        select.style.display = 'none';
+      }
+      const pills = [...pillGroup.querySelectorAll('.wg-pill')];
       const write = (v) => {
         this.params[key] = v;
-        if(document.activeElement !== select) select.value = String(v);
+        select.value = String(v);
+        for(const p of pills){
+          const on = p.dataset.value === String(v);
+          p.classList.toggle('active', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        }
         this.emit(key);
       };
       row._write = write;
-      // Hydrate from PIXSource for shared keys (ratio/fit/bg/etc) so the
-      // select reflects the persisted cross-effect choice; fall back to the
-      // effect's own params; final fallback to the markup default.
+      // Hydrate from PIXSource for shared keys (ratio/fit/bg/etc) so pills
+      // reflect the persisted cross-effect choice; fall back to effect
+      // params; final fallback to the markup default.
       let initial;
       if(window.PIXSource && window.PIXSource.SHARED_KEYS &&
          window.PIXSource.SHARED_KEYS.includes(key) && key in window.PIXSource.params){
@@ -101,7 +132,9 @@
         initial = select.value;
       }
       write(initial);
-      select.addEventListener('change', () => write(select.value));
+      for(const p of pills){
+        p.addEventListener('click', () => write(p.dataset.value));
+      }
     }
     _bindFile(row, key){
       // File input row (image/video). data-handler="pix-source" pipes through PIXSource.
