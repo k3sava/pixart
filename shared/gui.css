@@ -3,6 +3,12 @@
    legibility. Canvas text rendering is independent (set inside each effect.js). */
 .wg{
   position:fixed; top:54px; right:8px; width:304px;
+  /* Reserve room for the top bar (54px) and footer (~46px). When an effect
+     ships more controls than fit, .wg-body becomes scrollable rather than
+     letting rows bleed off the viewport. The flex column keeps the title
+     sticky at the top of the panel. */
+  max-height:calc(100dvh - 54px - 56px);
+  display:flex; flex-direction:column;
   background:var(--panel-bg); border:1px solid var(--panel-border);
   color:var(--panel-text);
   box-shadow:0 4px 18px rgba(0,0,0,0.12);
@@ -11,9 +17,17 @@
   z-index:9;
   user-select:none;
   transition:transform .22s cubic-bezier(.2,0,0,1);
+  overflow:hidden; /* body owns its own scroll */
 }
-.wg.collapsed{ transform:translateX(calc(100% - 28px)); background:transparent; border:none; box-shadow:none }
+.wg.collapsed{
+  transform:translateX(calc(100% - 28px));
+  background:transparent; border:none; box-shadow:none;
+  /* Fully release viewport: no clipping, no body scroll, no max-height
+     pinning while parked offscreen. The 28-px handle stays visible. */
+  max-height:none; overflow:visible; pointer-events:none;
+}
 .wg.collapsed > :not(.wg-collapse){ visibility:hidden }
+.wg.collapsed .wg-collapse{ pointer-events:auto; }
 
 /* Collapse handle — small chevron button anchored top-left of the panel. */
 .wg-collapse{
@@ -33,8 +47,27 @@
 .wg-collapse:hover{ background:var(--button-bg-hover); color:var(--button-text-hover) }
 .wg .wg-collapse::before{ content:"›" }
 .wg.collapsed .wg-collapse::before{ content:"‹" }
-.wg-title{ padding:8px 12px 8px 34px; background:var(--panel-title-bg); color:var(--panel-title-text); border-bottom:1px solid var(--panel-border); font-weight:600; font-family:var(--kami-font-display); cursor:default; letter-spacing:.02em; }
-.wg-body{ padding:4px 0; }
+.wg-title{
+  padding:8px 12px 8px 34px;
+  background:var(--panel-title-bg); color:var(--panel-title-text);
+  border-bottom:1px solid var(--panel-border);
+  font-weight:600; font-family:var(--kami-font-display);
+  cursor:default; letter-spacing:.02em;
+  flex:0 0 auto;
+}
+.wg-body{
+  padding:4px 0;
+  flex:1 1 auto;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  /* Thin scrollbar — present but visually quiet */
+  scrollbar-width:thin;
+  scrollbar-color:var(--panel-border) transparent;
+}
+.wg-body::-webkit-scrollbar{ width:6px; }
+.wg-body::-webkit-scrollbar-track{ background:transparent; }
+.wg-body::-webkit-scrollbar-thumb{ background:var(--panel-border); border-radius:3px; }
+.wg-body::-webkit-scrollbar-thumb:hover{ background:var(--text); }
 .wg.is-collapsed .wg-body{ display:none; }
 
 .wg-row{ display:grid; grid-template-columns:46% 54%; align-items:center; padding:4px 12px; min-height:24px; }
