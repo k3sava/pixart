@@ -2,7 +2,25 @@
 //
 // Algorithm: rotated halftone grid. For each cell, sample luminance under
 // the cell centre and emit a vertical rectangle whose width maps darkness →
-// width. Static-only render (pass2 simplification).
+// width.
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top of the
+// static grid renderer. Defaults verified against portrait.jpg — portrait stays
+// recognisable in the rotated halftone-bar pattern at xSquares=90, ySquares=90,
+// maxSquareWidth=5, angle=15.
+//
+// Animation modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   breath — maxSquareWidth pingpongs 1.5 ↔ 6.5 (bars grow/shrink). Subject
+//            "inhales" then "exhales" tonal density.
+//   spin   — angle drifts ±15° around user default. Halftone screen rotates
+//            back and forth like a turning gauze.
+//   tone   — whitePoint drifts 130 ↔ 255. Tonal floor rises and falls so the
+//            stipple field washes out and recovers.
+//
+// Interactive: cursor X → angle (-45..45), cursor Y → maxSquareWidth (1..40).
+// Metaphor: cursor IS the halftone screen — drag it to rotate / press to
+// darken.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -27,6 +45,10 @@ const params = {
   maxSquareWidth:     5,
   gridType:           'Regular',  // 'Regular' | 'Benday'
   angle:              15,
+  // Animation + interactive.
+  animate:            false,
+  mode:               'breath',
+  interactive:        false,
   showEffect:         true,
   // Shared chrome.
   fit:                'cover',
@@ -275,12 +297,102 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // maxSquareWidth pingpongs around user's value with amplitude 2.5.
+    const base = params.maxSquareWidth;
+    const amp = 2.5;
+    params.maxSquareWidth = clamp(base - amp + (2 * amp) * pingPong(t01), 0.5, 50);
+    return () => { params.maxSquareWidth = base; };
+  }
+  if(mode === 'spin'){
+    // angle drifts ±15° from user default (smooth cosine).
+    const base = params.angle;
+    params.angle = base + 15 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.angle = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint drifts 130 ↔ 255, centred 192, amp 62.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseAngle = params.angle;
+  const baseMaxW  = params.maxSquareWidth;
+  params.angle          = -45 + ax * 90;       // X → -45..45
+  params.maxSquareWidth = 1   + ay * 39;       // Y → 1..40
+  return () => { params.angle = baseAngle; params.maxSquareWidth = baseMaxW; };
+}
+
+// Track whether the previous frame baked a modulated whitePoint into the
+// preprocessed buffer; if so, the next non-tone frame must re-preprocess.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildDots();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blur','grain','gamma','blackPoint','whitePoint','fit','bg']);
@@ -290,15 +402,31 @@ const PAINT_KEYS = new Set(['showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('build'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('build');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('build'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -313,6 +441,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

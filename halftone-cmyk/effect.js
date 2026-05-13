@@ -40,6 +40,9 @@ const params = {
   gcr:            0.5,
   registerOffset: 1.5,
   paperWhite:     '#fefef8',
+  animate:        false,
+  mode:           'mist',
+  interactive:    false,
   showEffect:     true,
   fit:            'cover',
   bg:             '#0a0a0a',
@@ -253,11 +256,107 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+//
+// Modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   mist    — registerOffset pingpongs ±default amplitude (plates drift in/out
+//             of registration). Paint-only, ~free.
+//   breath  — cellSize pingpongs 8 ↔ 18 (halftone screen grows/shrinks).
+//             Triggers buildPlates each frame; still <30ms.
+//   kPulse  — kStrength cosine 0.4 ↔ 1.4 (black plate intensifies/fades).
+//
+// Interactive: cursor X → cellSize (4..30), cursor Y → registerOffset (-8..8).
+//
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'mist'){
+    const base = params.registerOffset;
+    const amp = Math.max(2, Math.abs(base) || 3);
+    params.registerOffset = amp * Math.cos(t01 * Math.PI * 2);
+    return () => { params.registerOffset = base; };
+  }
+  if(mode === 'breath'){
+    const base = params.cellSize;
+    params.cellSize = 8 + 10 * pingPong(t01);
+    return () => { params.cellSize = base; };
+  }
+  if(mode === 'kPulse'){
+    const base = params.kStrength;
+    params.kStrength = 0.9 + 0.5 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.kStrength = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseCell = params.cellSize;
+  const baseReg  = params.registerOffset;
+  params.cellSize = 4 + ax * 26;
+  params.registerOffset = -8 + ay * 16;
+  return () => { params.cellSize = baseCell; params.registerOffset = baseReg; };
+}
+
+function modeNeedsBuild(){
+  return params.mode === 'breath' || params.mode === 'kPulse';
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  // Build only when modulating a build-key. Interactive always touches cellSize.
+  const needsBuild = (params.animate && modeNeedsBuild()) || (params.interactive && hasMouse);
+  if(needsBuild) buildPlates();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['gcr','fit','bg']);
@@ -267,15 +366,31 @@ const PAINT_KEYS = new Set(['registerOffset','paperWhite','showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -290,6 +405,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

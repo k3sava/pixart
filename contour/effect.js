@@ -6,11 +6,40 @@
 // table, place endpoints by LINEAR INTERPOLATION along the crossing edge,
 // stroke. Repeat for each of `levels` evenly-spaced isovalues.
 //
-// Output reads as a topographic-map drawing on cream paper: face shape,
-// cheeks, brow ridge, hair mass, all traced by concentric contours.
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+// Pattern mirrors bevel/effect.js + ascii/effect.js — applyMode(t01) +
+// applyInteractive() return restore callbacks so GUI sliders show user
+// intent, not modulated values, and WAEffect.cycleMs=15000 stays canonical.
+//
+// Defaults chosen by sweeping each control alone against portrait.jpg in
+// the browser (see docs/step2-screenshots/ + docs/step2-research.md).
+// Sweet spot for "topographic-map drawing AND portrait recognizable":
+//
+//   levels=14      — 12 still reads but 14 gives crisper cheek/jaw bands;
+//                    >24 starts crowding into pure hatching; <8 dissolves.
+//   smoothing=0.5  — reference default; below 0.25 the contours fragment
+//                    into pixel-grade jaggies, above 0.75 the face softens
+//                    past recognizability.
+//   lineWidth=1.0  — was 1.2; at this canvas scale 1.0 keeps the bands
+//                    individually legible. Hairline >1.6 starts welding.
+//
+// Animation modes (each = one control's cosine sweep, cycleMs=15000):
+//
+//   breath — levels cosine breathes (8 ↔ 14 ↔ 22). Contour bands emerge
+//            and recede like topography being drawn level by level.
+//   tone   — smoothing drifts (0.15 ↔ 0.5 ↔ 0.85). The contour curves go
+//            from etched-sharp (low smoothing) to soft cartographic (high),
+//            and back. Same level count, different curve character.
+//
+// (Skipping a 3rd lineWidth pingpong — verified visually weakest of the
+//  three candidates; either weld or thin out without changing the figure.)
+//
+// Interactive: cursor X → levels (4..40 — left=sparse, right=dense bands);
+// cursor Y → smoothing (0..1 — top=etched, bottom=soft). One metaphor:
+// cursor is the cartographer's density + softness dial.
 'use strict';
 
-const CYCLE_MS = 0;
+const CYCLE_MS = 15000;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -19,12 +48,15 @@ const srcBuf = document.createElement('canvas');
 const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
 
 const params = {
-  levels:      12,
+  levels:      14,
   smoothing:   0.5,
-  lineWidth:   1.2,
+  lineWidth:   1.0,
   lineColor:   '#0d0d0d',
   bgColor:     '#f4ead2',
   fillBands:   false,
+  animate:     false,
+  mode:        'breath',
+  interactive: false,
   showEffect:  true,
   fit:         'cover',
   bg:          '#0a0a0a',
@@ -212,7 +244,6 @@ function paint(){
   ctx.fillRect(ox, oy, dw, dh);
 
   if(!params.showEffect){
-    // Draw the smoothed source through, no contour overlay.
     if(preprocessed){
       const off = document.createElement('canvas');
       off.width = lumW; off.height = lumH;
@@ -245,12 +276,93 @@ function paint(){
   ctx.restore();
 }
 
-// ── WAEffect contract (no animation) ─────────────────────────
+// ── animation (bevel pattern) ────────────────────────────────
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // levels cosine 8 ↔ 14 ↔ 22 — bands emerge/recede.
+    const base = params.levels;
+    params.levels = Math.round(8 + 14 * pingPong(t01));
+    return () => { params.levels = base; };
+  }
+  if(mode === 'tone'){
+    // smoothing drifts 0.15 ↔ 0.5 ↔ 0.85 — etched ↔ soft cartographic.
+    const base = params.smoothing;
+    params.smoothing = 0.5 + 0.35 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.smoothing = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseLevels = params.levels;
+  const baseSmoothing = params.smoothing;
+  params.levels = Math.round(4 + ax * 36); // 4..40
+  params.smoothing = ay;                    // 0..1
+  return () => { params.levels = baseLevels; params.smoothing = baseSmoothing; };
+}
+
+// tone mode (and interactive smoothing) modulates a preprocessor key — re-run
+// preprocess each frame. levels is a paint-only key.
+let preprocessedIsModulated = false;
+function renderAt(t01){
+  const modeNeedsPre = params.animate && params.mode === 'tone';
+  const intNeedsPre  = params.interactive && hasMouse;
+  const needsPre = modeNeedsPre || intNeedsPre || preprocessedIsModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsModulated = modeNeedsPre || intNeedsPre;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS = new Set(['smoothing','fit','bg']);
@@ -258,14 +370,30 @@ const PRE_KEYS = new Set(['smoothing','fit','bg']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key)) schedule('pre');
     else                  schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -280,6 +408,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

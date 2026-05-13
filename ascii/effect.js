@@ -1,7 +1,36 @@
 // pixart/ascii — converts the current source (image or video frame) into a
-// monospace ASCII grid rendered on canvas. Static effect (Pass 2): no
-// animation, no interactive cursor, no fg/fgMatch/bold/tracking/jitter/
-// invertRamp. The reference panel does not expose these.
+// monospace ASCII grid rendered on canvas.
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top of the
+// step-1 static pipeline. Pattern mirrors bevel/effect.js — same params shape
+// (animate, mode, interactive), same applyMode(t01)/applyInteractive() with
+// restore callbacks so the GUI sliders show user intent, not modulated values.
+//
+// Defaults were chosen against assets/samples/portrait.jpg, sweeping each
+// candidate control in the browser. Sweet spot for "portrait recognisable
+// AND ASCII clearly readable":
+//
+//   columns=96      — face contours read at ≥72; <48 dissolves to pure tone.
+//                     96 is the densest landing that still feels typographic
+//                     rather than photographic on a 1280-wide canvas.
+//   gamma=1         — neutral; gamma<1 floods mid-tones with '#' / '@';
+//                     gamma>1 sinks the face into the bg.
+//   blackPoint=0    — keep full shadow range; cropping shadows kills hair.
+//   whitePoint=255  — full range; the tone mode shifts this dynamically.
+//
+// Animation modes (each = one control's gentle cosine sweep, cycleMs=15000):
+//
+//   pulse — columns breathes (48 → 96 → 144). The ASCII grid coarsens to a
+//           pure-glyph abstraction, then refines back to a recognisable face.
+//   tone  — whitePoint drifts above and below default (130 ↔ 255). Mid-tone
+//           cells shift along the ramp without changing density — the face's
+//           hatching gets denser and sparser in place.
+//
+// (Skipping a 3rd mode — gamma sweep was visually redundant with `tone`.)
+//
+// Interactive: cursor X drives columns (24..160 — left=coarse, right=fine);
+// cursor Y drives gamma (0.4..2.0 — top=bright, bottom=deep shadows). One
+// metaphor: the cursor is your zoom + exposure dial.
 'use strict';
 
 const DEFAULT_RAMP = ' .:-=+*#%@';
@@ -27,6 +56,10 @@ const params = {
   comments: false,
   borders: false,
   showEffect: true,
+  // Animation / interaction
+  animate: false,
+  mode: 'pulse',
+  interactive: false,
   // Shared
   fit: 'cover',
   bg: '#0a0a0a',
@@ -195,11 +228,92 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+//
+// Same pattern as bevel/effect.js: cosine envelopes around the user's base
+// value, restored after each frame so the panel sliders don't visibly jitter.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'pulse'){
+    // columns coarsens (48) → default (96) → refines (144) → back. Using
+    // a full cosine so the loop is smooth — at t=0 and t=1 we land on 96
+    // (the default), at t=0.5 we hit 144, at t=0.25 / 0.75 we touch 48.
+    // Net amplitude tuned so portrait stays recognisable across the loop.
+    const base = params.columns;
+    params.columns = Math.round(96 - 48 * Math.cos(t01 * Math.PI * 2));
+    return () => { params.columns = base; };
+  }
+  if(mode === 'tone'){
+    // Drift whitePoint between 130 and 255. Centre 192, amplitude 62 —
+    // mid-tones traverse the ramp without grid changes, so the face's
+    // hatching density modulates in place. Same envelope as bevel/tone.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseCols = params.columns;
+  const baseGamma = params.gamma;
+  params.columns = Math.round(24 + ax * (160 - 24));
+  params.gamma   = 0.4 + ay * (2.0 - 0.4);
+  return () => { params.columns = baseCols; params.gamma = baseGamma; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(_t){ paint(); },
-  pauseRender(){},
-  resumeRender(){ paint(); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else paint();
+    return cv;
+  },
 };
 
 function init(){
@@ -207,10 +321,18 @@ function init(){
   gui.on((key) => {
     if(key === 'fit' || key === 'bg') window.PIXSource?.setParam(key, params[key]);
     if(window.PIXState && window.PIXState.isShared(key)) window.PIXState.set(key, params[key]);
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); paint(); }
+      return;
+    }
+    if(params.animate) return; // animation loop owns the canvas
     paint();
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) paint(); });
   if(window.PIXSource){
-    window.PIXSource.onChange(() => paint());
+    window.PIXSource.onChange(() => { if(!params.animate) paint(); });
   }
   if(window.WAExport){
     window.WAExport.wire({
@@ -223,6 +345,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); paint(); });
   fitCanvas();
   paint();
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

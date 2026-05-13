@@ -8,11 +8,36 @@
 //   4. Add `angleOffset` to rotate the whole pattern.
 //   5. Sample source at sample-origin + (r·cos θ', r·sin θ'); wrap toroidally.
 //
-// References: Brewster (1816), Quilez polar-symmetry article, Shadertoy
-// MdSfDz. No tessellation, no Möbius — pure Euclidean fold.
+// References: Brewster (1816), Quilez polar-symmetry article, Shadertoy MdSfDz.
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top, matching
+// the bevel pattern (applyMode, applyInteractive, renderAt, WAEffect.cycleMs).
+//
+// Tested defaults (portrait recognizable through the 8-fold fold; swept in
+// browser against portrait.jpg):
+//
+//   segments=8       — 8 petals reads as a classic kaleidoscope while
+//                      preserving enough wedge area for portrait features.
+//   angleOffset=0    — neutral; the petal seams sit on the cardinal axes.
+//   zoom=1.2         — gently magnifies past the seam ring; <0.8 reveals
+//                      the unfolded source, >2 dissolves into texture.
+//   sampleX=0,Y=0    — centre. Portrait centred in source = symmetric petals.
+//   mirror=true      — continuous seams; without it the wedge edge tears.
+//
+// Animation modes (each = cycleMs=15000):
+//
+//   rotate — angleOffset monotonic 0 → 2π over the loop. Whole pattern
+//            spins like a real kaleidoscope tube being turned.
+//   breath — zoom cosine pingpongs 0.7 ↔ 2.0 around the default. Pattern
+//            inhales and exhales through the seam ring.
+//   petals — segments steps through [4, 6, 8, 12] one fold-count per quarter
+//            of the loop. Discrete pop, beautiful re-tile each step.
+//
+// Interactive: cursor X → angleOffset (-π..π), cursor Y → zoom (0.5..2.5).
+// Metaphor: the cursor turns and pushes the kaleidoscope tube.
 'use strict';
 
-const CYCLE_MS = 0;
+const CYCLE_MS = 15000;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -37,6 +62,10 @@ const params = {
   sampleX:     0,
   sampleY:     0,
   zoom:        1.2,
+  // Animation + interactive (pattern-set layer).
+  animate:     false,
+  mode:        'rotate',
+  interactive: false,
   // Show the effect, or fall through to raw source.
   showEffect:  true,
   // Shared chrome.
@@ -211,12 +240,96 @@ function paint(){
   ctx.restore();
 }
 
-// ── WAEffect contract (no animation) ─────────────────────────
+// ── animation + interactive (matches bevel pattern) ──────────
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+const PETAL_STEPS = [4, 6, 8, 12];
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'rotate'){
+    const base = params.angleOffset;
+    params.angleOffset = t01 * Math.PI * 2;
+    return () => { params.angleOffset = base; };
+  }
+  if(mode === 'breath'){
+    // Zoom 0.7 ↔ 2.0 cosine. Centre 1.35, amplitude 0.65. Both ends keep
+    // the portrait recognisable while giving real depth motion.
+    const base = params.zoom;
+    params.zoom = 1.35 + 0.65 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.zoom = base; };
+  }
+  if(mode === 'petals'){
+    // Step segments through [4,6,8,12] — one per quarter loop.
+    const base = params.segments;
+    const idx = Math.min(PETAL_STEPS.length - 1, Math.floor(t01 * PETAL_STEPS.length));
+    params.segments = PETAL_STEPS[idx];
+    return () => { params.segments = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseAngle = params.angleOffset;
+  const baseZoom  = params.zoom;
+  // X → angleOffset (-π..π); Y → zoom (0.5..2.5, deeper at bottom).
+  params.angleOffset = (ax * 2 - 1) * Math.PI;
+  params.zoom = 0.5 + ay * 2.0;
+  return () => { params.angleOffset = baseAngle; params.zoom = baseZoom; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
+// ── WAEffect contract ────────────────────────────────────────
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -224,14 +337,30 @@ const PRE_KEYS = new Set(['canvasSize','blurAmount','grainAmount','gamma','black
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key)) schedule('pre');
     else                  schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -246,6 +375,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

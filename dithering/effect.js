@@ -3,6 +3,24 @@
 // Image dither pipeline: image → grid downsample → quantise via a chosen
 // pattern → upsample to pixel blocks. Three patterns: Floyd-Steinberg, 4×4
 // Bayer, Random. Two colour modes: mono (threshold) and palette (RGB nearest).
+//
+// Step 2 (pattern-set): animation + interactive cursor on top of step 1.
+// Pattern mirrors bevel/ascii — applyMode(t01)/applyInteractive() restore
+// callbacks so GUI sliders show user-intent values, not modulated ones.
+//
+// Defaults swept against portrait.jpg in browser:
+//   pixelSize=4          — face contours read clearly; ≥10 dissolves features.
+//   lightnessThreshold=160 — F-S balance, hair + face both legible.
+//   whitePoint=255       — full range; tone mode shifts dynamically.
+//   patternType='F-S'    — Floyd-Steinberg keeps portrait recognizable best.
+//
+// Animation modes (cycleMs=15000):
+//   grow — pixelSize ping-pongs 2 ↔ 10. Cells inflate/deflate; portrait
+//          alternately resolves and pixelates.
+//   tone — whitePoint drifts 130 ↔ 255. Dither density shifts across mid-tones.
+//
+// Interactive: cursor X drives pixelSize (1..12 — left=fine, right=chunky);
+// cursor Y drives lightnessThreshold (40..220 — top=dark, bottom=bright).
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -20,8 +38,11 @@ const params = {
   whitePoint:        255,
   patternType:       'F-S',   // 'F-S' | 'Bayer' | 'Random'
   pixelSize:         4,
-  lightnessThreshold: 255,
+  lightnessThreshold: 160,
   colorMode:         false,
+  animate:           false,
+  mode:              'grow',
+  interactive:       false,
   showEffect:        true,
   fit:               'cover',
   bg:                '#0a0a0a',
@@ -405,12 +426,98 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'grow'){
+    const base = params.pixelSize;
+    params.pixelSize = 2 + 8 * pingPong(t01);
+    return () => { params.pixelSize = base; };
+  }
+  if(mode === 'tone'){
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'threshold'){
+    const base = params.lightnessThreshold;
+    params.lightnessThreshold = 80 + 140 * pingPong(t01);
+    return () => { params.lightnessThreshold = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseP = params.pixelSize;
+  const baseT = params.lightnessThreshold;
+  params.pixelSize = 1 + ax * 11;        // 1..12
+  params.lightnessThreshold = 40 + ay * 180; // 40..220
+  return () => { params.pixelSize = baseP; params.lightnessThreshold = baseT; };
+}
+
+// Track if last frame baked a modulated whitePoint into preprocessed buffer
+// so non-tone frames can re-preprocess to wipe leftover modulation.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildRects();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else paint();
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blur','grain','gamma','blackPoint','whitePoint','fit','bg']);
@@ -419,15 +526,31 @@ const BUILD_KEYS = new Set(['pixelSize','lightnessThreshold','patternType','colo
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('pre'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -442,6 +565,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

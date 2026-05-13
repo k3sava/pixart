@@ -33,6 +33,10 @@ const params = {
   angle:              15,
   // Paint.
   showEffect:         true,
+  // Animation + interactive (Step 2).
+  animate:            false,
+  mode:               'breath',
+  interactive:        false,
   // Shared chrome.
   fit:                'cover',
   bg:                 '#0a0a0a',
@@ -328,12 +332,106 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation + interactive (Step 2) ----------
+//
+// Three modes, each cosine-enveloped across CYCLE_MS=15000:
+//   breath — maxDotSize pingpongs 4 ↔ base ↔ 24 (dots inflate/deflate).
+//   tone   — whitePoint cosine 130 ↔ 255 (highlights drift; preprocessor key,
+//            so re-runs preprocess each frame in tone-mode only).
+//   spin   — angle sweeps 0 → 360° once per cycle (halftone screen rotates).
+//
+// Interactive metaphor: cursor X → maxDotSize 4..30, cursor Y → angle 0..360.
+// One sentence: cursor IS the screen's caliper + rotation.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    const base = params.maxDotSize;
+    // 4 ↔ 24 cosine — dots inflate and deflate around the visual centre.
+    params.maxDotSize = 4 + 20 * pingPong(t01);
+    return () => { params.maxDotSize = base; };
+  }
+  if(mode === 'tone'){
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'spin'){
+    const base = params.angle;
+    params.angle = (t01 * 360) % 360;
+    return () => { params.angle = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseMax = params.maxDotSize;
+  const baseAng = params.angle;
+  params.maxDotSize = 4 + ax * 26;   // 4..30
+  params.angle      = ay * 360;       // 0..360
+  return () => { params.maxDotSize = baseMax; params.angle = baseAng; };
+}
+
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildDots();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blur','grain','gamma','blackPoint','whitePoint','fit','bg']);
@@ -343,15 +441,31 @@ const PAINT_KEYS = new Set(['cornerRadius','showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -366,6 +480,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

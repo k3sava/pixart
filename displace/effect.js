@@ -1,4 +1,5 @@
-// pixart/displace — faithful port of tooooools.app/effects/displace.
+// pixart/displace — faithful port of tooooools.app/effects/displace with
+// Step 2 pattern-set (animation + interactive) bolted on top.
 //
 // Algorithm (the simple original, pre-3D-bolt-on):
 //   1. Preprocess the source: blur → grain → gamma → levels.
@@ -6,7 +7,28 @@
 //   3. For each cell, draw a `dotSize` dot at the source position, vertically
 //      offset by `displacement * (luminance / 255)`.
 //
-// No 3D projection, no animation, no interactive basin. Static render.
+// Defaults were chosen by sweeping each control alone against `portrait.jpg`
+// in Playwright (see docs/step2-screenshots/ and docs/step2-research.md).
+// Sweet spot for "field of dots reads AND portrait stays recognizable":
+//
+//   displacement=180  — reference default; portrait reads, top edge streaks
+//                       (the signature look). swell mode passes 0 mid-loop.
+//   stepSize=8        — reference default; finer = mushy, coarser = mosaic.
+//   dotSize=8         — slight overlap into the displaced field; readable.
+//   whitePoint=255    — full range; tone mode shifts it down to 192±63.
+//
+// Animation modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   swell  — displacement = base * cos(2π t). Pingpongs default ↔ 0 ↔ -default
+//            ↔ 0 ↔ default. Dots "breathe" up and down through the resting
+//            portrait position.
+//   tone   — whitePoint drifts 130 ↔ 255 (centre 192, amp 62). Levels-driven
+//            contrast pulses; the dot field brightens and dims.
+//   breath — dotSize pingpongs between 4 and 16 (centre 10, amp 6). Dots
+//            inhale and exhale; field opens and closes.
+//
+// Interactive: cursor X drives displacement (-150..150), cursor Y drives
+// dotSize (4..24). One metaphor: cursor is the wind shaping the dot field.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -25,6 +47,9 @@ const params = {
   stepSize:     8,
   displacement: 180,
   dotSize:      8,
+  animate:      false,
+  mode:         'swell',
+  interactive:  false,
   showEffect:   true,
   fit:          'cover',
   bg:           '#0a0a0a',
@@ -187,11 +212,101 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation (matches bevel pattern) ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'swell'){
+    // displacement = base * cos(2π t). Sweeps base → 0 → -base → 0 → base.
+    // Dots breathe vertically through the resting portrait position.
+    const base = params.displacement;
+    params.displacement = base * Math.cos(t01 * Math.PI * 2);
+    return () => { params.displacement = base; };
+  }
+  if(mode === 'tone'){
+    // Drift whitePoint 130 ↔ 255 cosine. Touches preprocess so caller re-runs.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'breath'){
+    // Dot size inhales/exhales 4 ↔ 16, pingPong so 4 at t=0 and t=1, 16 at 0.5.
+    const base = params.dotSize;
+    params.dotSize = 4 + 12 * pingPong(t01);
+    return () => { params.dotSize = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseDisp = params.displacement;
+  const baseDot  = params.dotSize;
+  // X: -150..150 displacement. Centre = 0 (dots at rest), edges = streaks.
+  params.displacement = (ax - 0.5) * 300;
+  // Y: 4..24 dot size. Top = small, bottom = chunky.
+  params.dotSize = 4 + ay * 20;
+  return () => { params.displacement = baseDisp; params.dotSize = baseDot; };
+}
+
+// Track tone-mode preprocess pollution (same gotcha as bevel).
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(){ paint(); },
-  pauseRender(){},
-  resumeRender(){ paint(); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS = new Set(['canvasSize','blur','grain','gamma','blackPoint','whitePoint','fit','bg']);
@@ -199,14 +314,30 @@ const PRE_KEYS = new Set(['canvasSize','blur','grain','gamma','blackPoint','whit
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key)) schedule('pre');
     else                  schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -221,6 +352,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

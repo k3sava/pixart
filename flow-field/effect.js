@@ -16,16 +16,38 @@ const ctx = cv.getContext('2d');
 const srcBuf = document.createElement('canvas');
 const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
 
+// Step 2 defaults — swept in browser against portrait.jpg. Sweet spot for
+// "streak field reads AS streaks AND portrait stays recognizable":
+//
+//   particles=4000   — dense field that still lets face emerge.
+//   steps=12         — short streaks track the image; long streaks smear it.
+//   stepLength=1.2   — face-feature scale; bigger and the eyes/mouth dissolve.
+//   noiseScale=0.006 — large-scale field, hair flows in coherent groups.
+//   flowStrength=1   — neutral; the modes pingpong around this.
+//   alpha=0.6        — strong ink, but not enough to mud the face.
+//
+// Animation modes (cosine envelope across cycleMs=15000):
+//
+//   flow  — flowStrength pingpongs 0 ↔ 2. Streaks retract into points and
+//           elongate into long hair-ribbons. Default; most "alive".
+//   drift — noiseScale slowly drifts 0.003 ↔ 0.012 (cosine). The flow field
+//           topology morphs — coarse swirls breathe in and out of finer ones.
+//
+// Interactive: cursor X → flowStrength (0..2), cursor Y → stepLength (0.5..5).
+// One metaphor: the cursor IS the wind. Right = strong gusts, down = long stride.
 const params = {
-  particles:    2000,
-  steps:        28,
-  stepLength:   1.6,
+  particles:    4000,
+  steps:        12,
+  stepLength:   1.2,
   noiseScale:   0.006,
   flowStrength: 1,
   lineWidth:    0.8,
-  alpha:        0.45,
+  alpha:        0.6,
   colorMode:    'sample',   // sample | gradient | mono | complement
   inkColor:     '#ffffff',
+  animate:      false,
+  mode:         'flow',     // flow | drift
+  interactive:  false,
   fit:          'cover',
   bg:           '#0a0a0a',
   showEffect:   true,
@@ -240,12 +262,88 @@ function paint(){
   ctx.restore();
 }
 
+// ─── animation + interactive ──────────────────────────────────
+// Mirrors the bevel pattern: applyMode/applyInteractive mutate params,
+// renderAt rebuilds, restorers wipe so GUI keeps showing user values.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'flow'){
+    // flowStrength pingpongs 0 ↔ 2. Streaks elongate and retract.
+    const base = params.flowStrength;
+    params.flowStrength = 2 * pingPong(t01);
+    return () => { params.flowStrength = base; };
+  }
+  if(mode === 'drift'){
+    // noiseScale drifts 0.003 ↔ 0.012, full cosine. Field topology morphs.
+    const base = params.noiseScale;
+    params.noiseScale = 0.0075 + 0.0045 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.noiseScale = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseFlow = params.flowStrength;
+  const baseStep = params.stepLength;
+  params.flowStrength = ax * 2;
+  params.stepLength   = 0.5 + ay * 4.5;
+  return () => { params.flowStrength = baseFlow; params.stepLength = baseStep; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ─── WAEffect contract ────────────────────────────────────────
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(){ paint(); },
-  pauseRender(){},
-  resumeRender(){ paint(); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS = new Set(['fit','bg']);
@@ -258,9 +356,21 @@ function init(){
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(params.animate) return;
     if(PRE_KEYS.has(key)) schedule('pre');
     else                  schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }

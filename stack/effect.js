@@ -92,6 +92,29 @@
 //   animate:         true     — the landing frame already shows motion (deal in
 //                               progress); without this Stack is just a still
 //
+// Step 2 (pattern-set): mode pills + interactive toggle layered on top of the
+// existing deal animator.
+//
+// Animation modes (each runs across the existing cycleMs = durationSeconds*1000):
+//
+//   deal   — the default card-deal motion from the bundle. Phase = t01.
+//   breath — cardSize cosine-pingpongs (200 ↔ 320) while the deal plays. Cards
+//            inflate and deflate while landing on the pile. Mutates cardSize per
+//            frame, marks texture dirty so the rounded-clipped buffer rebuilds.
+//   swirl  — rotationRange cosine-pingpongs (4 ↔ 28) while the deal plays. The
+//            fan-spread tightens and loosens — visually distinct from breath
+//            (rotation amplitude vs card scale).
+//
+// Interactive: cursor X → cardSize (120..420), cursor Y → rotationRange
+// inverted (0..40). The cursor shapes the pile geometry — wider/narrower fan,
+// fatter/thinner cards. Only active when interactive=true. Works alongside
+// animate (live cursor reshape during the deal) and without it (frozen pose).
+//
+// Static default (animate=false): freeze at t01=0.5. With cycles=2 the deal
+// curve reaches 1 at t01=0.5 so the entire pile is visible — at t01=0 no
+// cards have been dealt yet, so a "freeze at 0" would render nothing. The
+// 0.5 freeze guarantees the portrait reads on the stack in the still pose.
+//
 // Determinism:
 //   Per-card rotation depends only on (cardIndex, rotationSeed). Per-card shift
 //   depends on (cardIndex, drawIndex, rotationSeed). All seeded by FNV-1a, no
@@ -134,9 +157,11 @@ const params = {
   // Visuals.
   backgroundColor: '#ffffff',
   showEffect:    true,    // false = preview raw source (matches reference bypass)
+  // Step 2 controls.
+  mode:          'deal',
+  interactive:   false,
   // Shared chrome.
   animate:       true,    // landing frame shows a deal-in-progress
-  interactive:   false,
   fit:           'cover',
   bg:            '#0a0a0a',
 };
@@ -148,8 +173,47 @@ let animationStartTime = 0;
 let texDirty = true;
 let texAspect = 1;
 let rafQueued = false;
-let mouseX = 0, mouseY = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
 let currentT01 = 0;
+
+// Cosine pingpong: 0 → 1 → 0 across t01 ∈ [0,1).
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+// applyMode: mutates params per-frame, returns a restore closure. Called from
+// renderAnimationFrame so it covers animate=true and animate=false alike.
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // cardSize ping-pongs 200 ↔ 320 across the loop. cardSize drives the
+    // offscreen texture buffer, so mark texture dirty.
+    const base = params.cardSize;
+    params.cardSize = Math.round(200 + 120 * pingPong(t01));
+    texDirty = true;
+    return () => { params.cardSize = base; };
+  }
+  if(mode === 'swirl'){
+    // rotationRange ping-pongs 4 ↔ 28 across the loop. Texture buffer is
+    // unaffected (rotation is per-card transform, not in the buffer).
+    const base = params.rotationRange;
+    params.rotationRange = 4 + 24 * pingPong(t01);
+    return () => { params.rotationRange = base; };
+  }
+  // 'deal' default — no-op
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseS = params.cardSize;
+  const baseR = params.rotationRange;
+  params.cardSize      = Math.round(120 + ax * 300);  // 120..420
+  params.rotationRange = (1 - ay) * 40;               // 0..40 (Y inverted)
+  texDirty = true;
+  return () => { params.cardSize = baseS; params.rotationRange = baseR; };
+}
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -186,8 +250,9 @@ function schedule(level){
   rafQueued = true;
   requestAnimationFrame(() => {
     rafQueued = false;
-    if(texDirty) rebuildTexture();
-    paint();
+    // Route through renderAnimationFrame so mode/interactive apply in the
+    // static (animate=off) path too.
+    renderAnimationFrame(currentT01);
   });
 }
 
@@ -326,11 +391,22 @@ function cycleMs(){
 
 function renderAnimationFrame(tLoop){
   currentT01 = tLoop;
+  // animate=false freezes at t=0.5 — at cycles=2 the deal curve reaches its
+  // full visible count by t=0.5, so the entire pile is rendered. Freezing at
+  // t=0 would render zero cards (deal hasn't started).
+  const tEff = params.animate ? tLoop : 0.5;
+  const restoreMode = applyMode(tEff);
+  const restoreInt  = applyInteractive();
+  currentT01 = tEff;
   if(window.PIXSource?.isVideo()){
     window.PIXSource.advanceFrame();
     rebuildTexture();
+  } else if(texDirty){
+    rebuildTexture();
   }
   paint();
+  restoreInt();
+  restoreMode();
 }
 
 function animationLoop(){
@@ -374,24 +450,22 @@ function handleMouseMove(e){
   const r = cv.getBoundingClientRect();
   mouseX = e.clientX - r.left;
   mouseY = e.clientY - r.top;
-  if(params.interactive && !params.animate){
-    // Mouse X drives t01 (scrub the deal). Mouse Y drives rotationRange (0..45).
-    const ax = clamp(mouseX / r.width,  0, 1);
-    const ay = clamp(mouseY / r.height, 0, 1);
-    currentT01 = ax;
-    const nr = Math.round((1 - ay) * 45);
-    if(nr !== params.rotationRange){
-      params.rotationRange = nr;
-      gui?.rows.get('rotationRange')?._write(nr);
-    }
-    paint();
-  }
+  hasMouse = true;
+  if(params.interactive && !params.animate) schedule();
+}
+function handleMouseLeave(){
+  hasMouse = false;
+  if(params.interactive && !params.animate) schedule();
 }
 
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
     if(key === 'animate'){ toggleAnimation(); return; }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule();
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('tex'); else schedule();
@@ -420,6 +494,7 @@ function init(){
     });
   }
   cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', handleMouseLeave);
   window.addEventListener('resize', () => { fitCanvas(); paint(); });
   fitCanvas();
   schedule('tex');

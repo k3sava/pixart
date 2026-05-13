@@ -5,6 +5,31 @@
 // Within each run, sort the pixels by the chosen key (luminance / hue /
 // saturation / red). Pixels outside the band act as walls and are left in
 // place — that's what preserves the silhouette.
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone against portrait.jpg
+// in Playwright. Sweet spot for "sort streaks read AND portrait recognizable":
+//
+//   direction='row'        — horizontal streaks read most clearly as sort.
+//   sortBy='luminance'     — preserves tonal structure of the subject.
+//   thresholdLow=90        — keeps shadows as walls; protects facial features.
+//   thresholdHigh=200      — keeps highlights as walls; protects skin.
+//   The band [90..200] sorts the midtones (skin, fabric) while the very dark
+//   and very bright regions stay put. Widening the band beyond [60..240]
+//   dissolves the face. Narrowing below [120..180] reads as no-op.
+//
+// Animation modes (each = cosine envelope across cycleMs=15000):
+//
+//   band — thresholdLow ping-pongs 30 ↔ 150 around the user-set base. The
+//          band's dark wall slides in and out, so the sorted region grows
+//          and shrinks from the shadow side.
+//   flow — thresholdHigh ping-pongs 140 ↔ 250. The bright wall slides, so
+//          the band breathes from the highlight side (opposite end of band).
+//
+// Interactive: cursor X → thresholdLow (30..180), cursor Y → thresholdHigh
+// (60..240). The cursor literally IS the sort band — top-left = wide & dark,
+// bottom-right = narrow & bright.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -16,9 +41,12 @@ const sctx   = srcBuf.getContext('2d', { willReadFrequently: true });
 const params = {
   direction:     'row',
   sortBy:        'luminance',
-  thresholdLow:  80,
-  thresholdHigh: 220,
+  thresholdLow:  90,
+  thresholdHigh: 200,
   sortReverse:   false,
+  animate:       false,
+  mode:          'band',
+  interactive:   false,
   showEffect:    true,
   fit:           'cover',
   bg:            '#0a0a0a',
@@ -117,10 +145,12 @@ function buildSorted(){
   const px = preprocessed.data;
   const keyFn = getKeyFn(params.sortBy);
   const dirRaw = params.direction;
-  const lo = clamp(params.thresholdLow,  0, 255);
-  const hi = clamp(params.thresholdHigh, 0, 255);
+  let lo = clamp(params.thresholdLow,  0, 255);
+  let hi = clamp(params.thresholdHigh, 0, 255);
+  if(lo > hi){ const t = lo; lo = hi; hi = t; }
   const reverse = !!params.sortReverse;
 
+  // Build line index arrays.
   const lines = [];
   if(dirRaw === 'row'){
     for(let y = 0; y < H; y++){
@@ -176,7 +206,6 @@ function buildSorted(){
 
     let s = 0;
     while(s < L){
-      // find run start
       while(s < L){
         const i = idx[s];
         const lum = keyLum(px[i], px[i+1], px[i+2]);
@@ -184,7 +213,6 @@ function buildSorted(){
         s++;
       }
       if(s >= L) break;
-      // find run end
       let e = s;
       while(e < L){
         const i = idx[e];
@@ -243,7 +271,7 @@ function paint(){
   if(params.fit === 'cover'){
     if(W / H > aspect){ dw = W; dh = W / aspect; }
     else              { dh = H; dw = H * aspect; }
-  } else { // contain
+  } else {
     if(W / H > aspect){ dh = H; dw = H * aspect; }
     else              { dw = W; dh = W / aspect; }
   }
@@ -253,30 +281,122 @@ function paint(){
   ctx.restore();
 }
 
-// ---------- WAEffect contract ----------
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'band'){
+    // thresholdLow pings 30 ↔ 150. Dark wall slides — band widens/narrows
+    // from the shadow side.
+    const base = params.thresholdLow;
+    params.thresholdLow = 30 + 120 * pingPong(t01);
+    return () => { params.thresholdLow = base; };
+  }
+  if(mode === 'flow'){
+    // thresholdHigh pings 140 ↔ 250. Bright wall slides — opposite end of
+    // the band moves; band breathes from the highlight side.
+    const base = params.thresholdHigh;
+    params.thresholdHigh = 140 + 110 * pingPong(t01);
+    return () => { params.thresholdHigh = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseLo = params.thresholdLow;
+  const baseHi = params.thresholdHigh;
+  params.thresholdLow  = 30  + ax * 150;   // 30..180
+  params.thresholdHigh = 60  + ay * 180;   // 60..240
+  return () => { params.thresholdLow = baseLo; params.thresholdHigh = baseHi; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  buildSorted();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['fit','bg']);
 const BUILD_KEYS = new Set(['sortBy','direction','thresholdLow','thresholdHigh','sortReverse']);
-const PAINT_KEYS = new Set(['showEffect']);
 
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
-    if(key === 'fit' || key === 'bg'){
-      window.PIXSource?.setParam(key, params[key]);
-      if(key === 'fit') schedule('paint'); else schedule('paint');
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
       return;
     }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'fit' || key === 'bg'){
+      window.PIXSource?.setParam(key, params[key]);
+      schedule('paint');
+      return;
+    }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => { schedule('pre'); });
   }
@@ -291,6 +411,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

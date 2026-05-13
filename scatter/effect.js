@@ -1,4 +1,4 @@
-// pixart/scatter — Pass 4 (2026-05-13). Static-only.
+// pixart/scatter — Step 2 (2026-05-13).
 //
 // Poisson-disk-style stippler with Lloyd-style relaxation:
 //   1. Preprocessor (Blur → Grain → Gamma → Levels) mutates the source.
@@ -9,9 +9,40 @@
 //      scaled to the dot's diameter; if no upload, draw a solid black disc.
 //
 // `showEffect: false` bypasses the cloud and shows the preprocessed image.
+//
+// ---------------------------------------------------------------------------
+// Step 2: animation + interactive cursor layered on top, matching bevel's
+// pattern (applyMode / applyInteractive / renderAt / WAEffect.cycleMs).
+//
+// Defaults were chosen by sweeping in Playwright against portrait.jpg. Sweet
+// spot for "portrait recognisable in Poisson dot field":
+//
+//   pointDensityFactor = 0.05  — denser collapses face into noise; sparser
+//                                drops eye/lip definition.
+//   maxPointSize       = 18    — large enough that the darkest dots read as
+//                                features, not specks.
+//   minPointSize       = 3     — tiny pebbles in the bright skin areas.
+//   relaxIterations    = 6     — three is jaggy, ten is over-organised.
+//   relaxStrength      = 0.5   — gives a "natural pebble" packing.
+//   whitePoint         = 255   — full range; tone mode shifts it.
+//
+// Animation modes (each = a gentle cosine across cycleMs = 15000):
+//
+//   breath — maxPointSize cosine-pingpongs (0.55× ↔ 1.35× of the base size).
+//            Dots inflate and deflate; the portrait "breathes". Implemented
+//            as a paint-time `sizeScale` so we don't rebuild the field every
+//            frame (24-frame mean < 30ms).
+//   tone   — whitePoint drifts above/below the base (centred at 200, ±55).
+//            Implemented as a paint-time `lumCutoff` that hides dots whose
+//            sampled luminance exceeds the cutoff — visually the same as
+//            sliding whitePoint down, but without rebuilding. The brightest
+//            pebbles fade out, then fade back in.
+//
+// Interactive (cursor IS the field):
+//   X → maxPointSize 4..24   (paint-time sizeScale; no rebuild on move)
+//   Y → pointDensityFactor 0.01..0.15  (rebuilds on each move; user-paced
+//                                       so the per-move ~40ms is fine).
 'use strict';
-
-const CYCLE_MS = 0;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -31,6 +62,9 @@ const params = {
   maxPointSize:       18,
   relaxIterations:    6,
   relaxStrength:      0.5,
+  animate:            false,
+  mode:               'breath',
+  interactive:        false,
   showEffect:         true,
   fit:                'cover',
   bg:                 '#0a0a0a',
@@ -49,6 +83,10 @@ let rafQueued = false;
 // User-uploaded dot texture image. Null until a file is picked; fallback is a
 // solid black disc rendered at draw time.
 let dotImage = null;
+
+// Paint-time modulation. Animation modes and the interactive X-axis write
+// these so we can re-render without rebuilding the dot field.
+const paintOpts = { sizeScale: 1, lumCutoff: 256 };
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -293,12 +331,19 @@ function paint(){
   order.sort((a, b) => dotsBuf[b*6+2] - dotsBuf[a*6+2]);
 
   const tex = (dotImage && dotImage.complete && dotImage.naturalWidth > 0) ? dotImage : null;
+  const sizeScale = paintOpts.sizeScale;
+  const lumCutoff = paintOpts.lumCutoff;
 
   for(let k = 0; k < dotCount; k++){
     const o = order[k] * 6;
+    // tone mode: hide brightest dots whose source luminance exceeds the cutoff.
+    if(lumCutoff < 256){
+      const lum = (dotsBuf[o+3] + dotsBuf[o+4] + dotsBuf[o+5]) / 3;
+      if(lum > lumCutoff) continue;
+    }
     const sx = offX + dotsBuf[o]   * fitScale;
     const sy = offY + dotsBuf[o+1] * fitScale;
-    const ds = Math.max(0.5, dotsBuf[o+2] * fitScale * 0.5);
+    const ds = Math.max(0.5, dotsBuf[o+2] * fitScale * 0.5 * sizeScale);
     const d2 = ds * 2;
     if(tex){
       // Draw uploaded texture scaled to the dot diameter, centred on the dot.
@@ -332,12 +377,127 @@ function loadDotTexture(file){
   img.src = url;
 }
 
+// ---------- animation ----------
+//
+// Bevel pattern: pure renderAt(t01) that applies the active mode's envelope,
+// renders, and rolls back any param mutation so the GUI display stays stable.
+// Scatter modulates paintOpts (paint-time only) so each frame is a paint, not
+// a rebuild — keeps the 24-frame mean < 30ms even at full default density.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+// Interactive-Y debounce: avoid rebuilding more than once per rAF tick.
+let interactiveRebuildPending = false;
+// Track whether interactive most-recently mutated pointDensityFactor so we can
+// restore the user's value when interactive turns off / mouse leaves.
+let interactiveDensityBase = null;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // 0.55 ↔ 1.35 of base maxPointSize, gentle pingpong.
+    paintOpts.sizeScale = 0.55 + 0.8 * pingPong(t01);
+    return () => { paintOpts.sizeScale = 1; };
+  }
+  if(mode === 'tone'){
+    // whitePoint analogue: lumCutoff drifts 100 ↔ 255. At 100 only the dots
+    // sampled from the darkest regions survive (the figure recedes to its
+    // shadow skeleton); at 255 every dot renders. Centred at 178, amp 78.
+    paintOpts.lumCutoff = 178 + 78 * Math.cos(t01 * Math.PI * 2);
+    return () => { paintOpts.lumCutoff = 256; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  // X → maxPointSize 4..24, expressed as a paint-time scale relative to base.
+  const targetMax = 4 + ax * 20;
+  paintOpts.sizeScale = targetMax / Math.max(1, params.maxPointSize);
+  // Y → pointDensityFactor 0.01..0.15. This requires a rebuild — only fire
+  // one per rAF tick to avoid stacking work behind a fast move.
+  const targetDensity = 0.01 + ay * 0.14;
+  if(interactiveDensityBase === null) interactiveDensityBase = params.pointDensityFactor;
+  if(Math.abs(targetDensity - params.pointDensityFactor) > 0.002){
+    params.pointDensityFactor = targetDensity;
+    if(!interactiveRebuildPending){
+      interactiveRebuildPending = true;
+      requestAnimationFrame(() => {
+        interactiveRebuildPending = false;
+        buildDots();
+        // animation loop will paint on its next tick; static interactive paints below.
+        if(!params.animate) paint();
+      });
+    }
+  }
+  return () => { paintOpts.sizeScale = 1; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
+function handleMouseLeave(){
+  hasMouse = false;
+  // Restore the user's density value (interactive may have stomped it).
+  if(interactiveDensityBase !== null){
+    params.pointDensityFactor = interactiveDensityBase;
+    interactiveDensityBase = null;
+    if(!params.animate){
+      buildDots();
+      paint();
+    }
+  } else if(!params.animate){
+    paint();
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else paint();
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -346,23 +506,49 @@ const BUILD_KEYS = new Set(['pointDensityFactor','minPointSize','maxPointSize','
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); paintOpts.sizeScale = 1; paintOpts.lumCutoff = 256; schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.interactive){
+        paintOpts.sizeScale = 1;
+        if(interactiveDensityBase !== null){
+          params.pointDensityFactor = interactiveDensityBase;
+          interactiveDensityBase = null;
+          schedule('build');
+        } else if(!params.animate){
+          schedule('paint');
+        }
+      } else if(!params.animate){
+        schedule('paint');
+      }
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
     if(key === 'dotTexture'){
-      // GUI emits filename; resolve to the actual File from the row's input.
       const row = document.querySelector('.wg-row[data-key="dotTexture"]');
       const input = row?.querySelector('input[type=file]');
       const f = input?.files && input.files[0];
       loadDotTexture(f || null);
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', handleMouseLeave);
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -377,6 +563,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -44,6 +44,9 @@ const params = {
   dryBrush:      0.4,
   paperGrain:    0.25,
   paperType:     'kozo',
+  animate:       false,
+  mode:          'breath',
+  interactive:   false,
   showEffect:    true,
   fit:           'cover',
   bg:            '#1a1612',
@@ -248,11 +251,94 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+// Modes (all cosine-modulated across cycleMs=15000):
+//   breath — brushPressure pingpongs 0.4 ↔ 1.6 (strokes thicken/thin).
+//   bleed  — bleed pingpongs 2 ↔ 22 (ink halo spreads/contracts).
+//   dry    — dryBrush pingpongs 0.05 ↔ 0.9 (full stroke ↔ broken stroke).
+// Interactive: cursor X → brushPressure 0.3..2, cursor Y → bleed 0..30.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    const base = params.brushPressure;
+    params.brushPressure = 0.4 + 1.2 * pingPong(t01);
+    return () => { params.brushPressure = base; };
+  }
+  if(mode === 'bleed'){
+    const base = params.bleed;
+    params.bleed = 2 + 20 * pingPong(t01);
+    return () => { params.bleed = base; };
+  }
+  if(mode === 'dry'){
+    const base = params.dryBrush;
+    params.dryBrush = 0.05 + 0.85 * pingPong(t01);
+    return () => { params.dryBrush = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseP = params.brushPressure;
+  const baseB = params.bleed;
+  params.brushPressure = 0.3 + ax * 1.7;
+  params.bleed = ay * 30;
+  return () => { params.brushPressure = baseP; params.bleed = baseB; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => { paint(); return cv; },
-  pauseRender: () => {},
-  resumeRender: () => { paint(); return cv; },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['fit','bg']);
@@ -262,6 +348,16 @@ const PAINT_KEYS = new Set(['inkColor','paperColor','brushPressure','inkDensity'
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(params.animate) return;
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
@@ -280,9 +376,12 @@ function init(){
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
+  if(params.animate) startAnimation();
   if(window.WAExport){
     window.WAExport.wire({
       canvas: cv, name: 'pixart-ink-wash',

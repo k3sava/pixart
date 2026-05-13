@@ -9,7 +9,21 @@
 
 'use strict';
 
-const CYCLE_MS = 0;
+// Step 2 (pattern-set): animation + interactive cursor layered on top, same
+// scaffold as bevel/ascii — applyMode(t01) / applyInteractive() / renderAt()
+// with cycleMs=15000. Modes verified against portrait.jpg in browser:
+//
+//   breath — gridDensityNumber pingpongs 25 ↔ 75 (mosaic refines and coarsens
+//            around the default of 49). Sine envelope so endpoints land back
+//            on the default — loops seamlessly.
+//   tone   — whitePoint cosine drifts 130 ↔ 255. Compresses/expands the input
+//            range, so the count of cells below threshold breathes in place
+//            without changing grid geometry. Centre 192, amplitude 62.
+//
+// Interactive: cursor X → gridDensityNumber 20..80 (left = coarse, right =
+// fine), cursor Y → lightnessThreshold 80..230 (top = sparse, bottom = dense
+// coverage). One metaphor: cursor sculpts the mosaic.
+const CYCLE_MS = 15000;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -33,6 +47,10 @@ const params = {
   // Paint.
   bgColor:           '#ffffff',
   showEffect:        true,
+  // Animation + interaction.
+  animate:           false,
+  mode:              'breath',
+  interactive:       false,
   // Tracked for the file row label (display only; actual tile lives in tileImage).
   patternImage:      'pattern-1.png',
   // Shared chrome.
@@ -238,12 +256,95 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // gridDensityNumber sine pingpongs 25 ↔ 75 around the default 49. At t=0
+    // and t=1 we land near default; t=0.5 hits the fine extreme.
+    const base = params.gridDensityNumber;
+    params.gridDensityNumber = Math.round(25 + 50 * pingPong(t01));
+    return () => { params.gridDensityNumber = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint cosine 130 ↔ 255. Preprocessor-key — needs re-preprocess.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseGrid = params.gridDensityNumber;
+  const baseTh   = params.lightnessThreshold;
+  params.gridDensityNumber = Math.round(20 + ax * 60);
+  params.lightnessThreshold = 80 + ay * 150;
+  return () => {
+    params.gridDensityNumber = baseGrid;
+    params.lightnessThreshold = baseTh;
+  };
+}
+
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildCells();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -283,10 +384,22 @@ function init(){
       return;
     }
     if(key === 'patternImage') return; // handled by the file input listener directly
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(params.animate) return; // animation loop owns the canvas
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -302,6 +415,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

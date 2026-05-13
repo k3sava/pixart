@@ -84,6 +84,29 @@
 //   rotationSpeed    1          — exactly one full slide-cycle per loop, the
 //                                 cleanest seamless rotation
 //
+// Step 2 (pattern-set): mode pills + interactive toggle layered on top.
+//
+// Defaults were verified by sweeping each control alone against `portrait.jpg`
+// (see docs/step2-screenshots/slide-*.png). At planeSize=180, orbitRadius=220,
+// cycles=1, planeRadius=32 the portrait reads cleanly on every plane through
+// the full orbit. Pushing orbitRadius >400 leaves planes hugging the edges;
+// planeSize <60 collapses the portrait to a thumbnail; cycles >2 starts
+// blurring per-plane motion at 60fps. The reference defaults are the sweet
+// spot — kept as static landing.
+//
+// Animation modes (each runs across the existing cycleMs = durationSeconds*1000):
+//
+//   orbit  — the default 3D orbit math from the bundle. Phase = t01.
+//   tilt   — orbit swings forward-and-back instead of revolving (pingPong of
+//            phase). Reads as a tilt-axis wobble: planes advance, settle,
+//            reverse. Distinct silhouette from `orbit` at t=0.5.
+//   breath — planeSize cosine-pingpongs 110 ↔ 250 while the orbit plays.
+//            Planes inflate and deflate around the ring.
+//
+// Interactive: cursor X → orbitRadius (100..400), cursor Y → planeSize
+// (60..280). Cursor "shapes" the ring — wider/narrower, fatter/thinner planes.
+// One metaphor: cursor controls ring geometry. Only active when interactive=true.
+//
 // Determinism:
 //   The rotation angle is a pure function of t_loop. No grain is used. No
 //   per-frame randomness. renderAt(0) === renderAt(1) byte-equal for export.
@@ -116,6 +139,9 @@ const params = {
   // Visuals.
   showEffect:      true,
   backgroundColor: '#0a0a0a',
+  // Step 2 controls.
+  mode:            'orbit',
+  interactive:     false,
   // Shared chrome.
   animate:         true,
   fit:             'cover',
@@ -129,6 +155,8 @@ let animationStartTime = 0;
 let texDirty = true;          // rebuild planeBuf next paint
 let texAspect = 1;            // h/w of the source texture
 let rafQueued = false;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+let phaseT01 = 0;             // effective phase fed into rotationAt
 
 // ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -173,8 +201,9 @@ function schedule(level){
   rafQueued = true;
   requestAnimationFrame(() => {
     rafQueued = false;
-    if(texDirty) rebuildTexture();
-    paint();
+    // Route through renderAnimationFrame so mode/interactive apply in the
+    // static (animate=off) path too.
+    renderAnimationFrame(currentT01);
   });
 }
 
@@ -247,6 +276,46 @@ function rebuildTexture(){
 // the canvas2d hot path.
 let currentT01 = 0;
 
+// Cosine pingpong: 0 → 1 → 0 across t01 ∈ [0,1).
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+// applyMode: returns a phase value (t for rotationAt) and a restore() closure
+// that rolls back any params it mutated. Called per-frame from renderAt.
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'tilt'){
+    // Forward-then-reverse swing: phase pingpongs instead of revolving.
+    // Halve the amplitude (×0.5) so a full loop covers half a revolution out
+    // and half back — keeps motion calm and seamless at t=0/t=1.
+    return { phase: 0.5 * pingPong(t01), restore: () => {} };
+  }
+  if(mode === 'breath'){
+    // Inflate / deflate planes around the ring. Modulate planeSize. Because
+    // planeSize changes the offscreen texture buffer, we must mark the
+    // texture dirty so rebuildTexture() runs before paint. Centre 180,
+    // amplitude 70 → 110 ↔ 250 (verified-recognisable from the sweep).
+    const base = params.planeSize;
+    params.planeSize = 180 + 70 * Math.cos(t01 * Math.PI * 2);
+    texDirty = true;
+    return { phase: t01, restore: () => { params.planeSize = base; } };
+  }
+  // 'orbit' default
+  return { phase: t01, restore: () => {} };
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseR = params.orbitRadius;
+  const baseS = params.planeSize;
+  params.orbitRadius = 100 + ax * 300;   // 100..400
+  params.planeSize   = 60  + ay * 220;   // 60..280
+  texDirty = true;
+  return () => { params.orbitRadius = baseR; params.planeSize = baseS; };
+}
+
 function paint(){
   const W = cv.width, H = cv.height;
   ctx.save();
@@ -270,7 +339,7 @@ function paint(){
 
   const N  = PLANE_COUNT;
   const R  = params.orbitRadius;
-  const wRot = rotationAt(currentT01, N);
+  const wRot = rotationAt(phaseT01, N);
 
   // Fit-scale: the orbit lives in a 2·(R + planeSize) world-unit box.
   const worldExtent = 2 * (R + params.planeSize);
@@ -320,6 +389,12 @@ function cycleMsNow(){
 
 function renderAnimationFrame(tLoop){
   currentT01 = tLoop;
+  // If not animating, freeze at t=0 (per Step 2 spec). Interactive may still
+  // mutate planeSize/orbitRadius, so applyInteractive still runs.
+  const tEff = params.animate ? tLoop : 0;
+  const { phase, restore: restoreMode } = applyMode(tEff);
+  const restoreInt = applyInteractive();
+  phaseT01 = phase;
   if(window.PIXSource?.isVideo()){
     window.PIXSource.advanceFrame();
     rebuildTexture();
@@ -327,6 +402,8 @@ function renderAnimationFrame(tLoop){
     rebuildTexture();
   }
   paint();
+  restoreInt();
+  restoreMode();
 }
 
 function animationLoop(){
@@ -371,6 +448,10 @@ function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
     if(key === 'animate'){ toggleAnimation(); return; }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule();
+      return;
+    }
     if(key === 'fit'){
       window.PIXSource?.setParam('fit', params.fit);
       schedule('tex');
@@ -404,6 +485,17 @@ function init(){
       rec: document.querySelector('.wa-rec'),
     });
   }
+  cv.addEventListener('mousemove', (e) => {
+    const r = cv.getBoundingClientRect();
+    mouseX = e.clientX - r.left;
+    mouseY = e.clientY - r.top;
+    hasMouse = true;
+    if(params.interactive && !params.animate) schedule();
+  });
+  cv.addEventListener('mouseleave', () => {
+    hasMouse = false;
+    if(params.interactive && !params.animate) schedule();
+  });
   window.addEventListener('resize', () => { fitCanvas(); paint(); });
   fitCanvas();
   schedule('tex');

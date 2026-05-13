@@ -83,6 +83,10 @@
     <div class="wg-row wg-slider" data-key="maxPointSize"       data-min="1"   data-max="50"   data-step="1"><div class="wg-name">Max dot size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="relaxIterations"    data-min="0"   data-max="20"   data-step="1"><div class="wg-name">Relax iterations</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="relaxStrength"      data-min="0"   data-max="1"    data-step="0.01"><div class="wg-name">Relax strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <!-- Animation modes — rendered as radio pills by the wg-select pill renderer. -->
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="breath">breath</option><option value="tone">tone</option></select></div></div>
+    <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
   </div>
 </aside>
@@ -105,6 +109,6 @@
 <script src="../shared/keys.js" defer></script>
 <script src="../shared/gui.js" defer></script>
 <script src="../shared/export.js" defer></script>
-<script src="effect.js" defer></script>
+<script src="effect.js?v=step2" defer></script>
 </body>
 </html>

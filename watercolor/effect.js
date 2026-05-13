@@ -14,6 +14,27 @@
 //   5. Palette LUT remap. Luminance is preserved and mapped through one of
 //      five named palettes; `tone` weights the mix against original colour.
 //
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone against `portrait.jpg`
+// in the browser. Sweet spot for "reads as watercolour AND portrait stays
+// recognizable":
+//
+//   wetness=0.4, edgeStrength=0.5, smoothing=0.6, paperGrain=0.35, tone=0.4
+//
+// Animation modes (cosine envelopes, cycleMs=15000):
+//
+//   breath — wetness cosine pingpongs between dry (0.05) and damp (0.85).
+//            The painting "breathes": paper dries and wets in turn.
+//   bleed  — smoothing cosine pingpongs between tight (0.1) and broad (0.95).
+//            Paint flows wider then pulls back. Reads as washes spreading.
+//   tone   — tone slider drifts between 0.05 and 0.85 around the user value.
+//            Palette mix breathes above and below default.
+//
+// Interactive: cursor X drives wetness (0..1), cursor Y drives edgeStrength
+// (0..1). One metaphor: the cursor IS the brush — drag right to wet the
+// paper, drag down to press harder so outlines bite deeper.
+//
 // References:
 //   - Curtis et al. (1997). *Computer-Generated Watercolor*. SIGGRAPH '97.
 //   - Bousseau et al. (2006). *Interactive Watercolor Rendering*.
@@ -44,6 +65,9 @@ const params = {
   palette:          'natural',
   tone:              0.4,
   wetRim:            0.2,
+  animate:           false,
+  mode:              'breath',
+  interactive:       false,
   showEffect:        true,
   fit:               'cover',
   bg:                '#f7f1e3',
@@ -123,7 +147,7 @@ const LUT_B = new Uint8ClampedArray(LUT_SIZE);
 let _lutPalette = null;
 function buildPaletteLUT(name){
   const stops = PALETTES[name];
-  if(!stops){ _lutPalette = null; return; }
+  if(!stops){ _lutPalette = name; return; }
   const rgbs = stops.map(hexToRgb);
   const n = rgbs.length;
   for(let i = 0; i < LUT_SIZE; i++){
@@ -155,7 +179,7 @@ function buildOutput(){
   const tone       = clamp(params.tone, 0, 1);
 
   if(_lutPalette !== params.palette) buildPaletteLUT(params.palette);
-  const hasLUT = _lutPalette !== null;
+  const hasLUT = PALETTES[params.palette] !== null && PALETTES[params.palette] !== undefined;
 
   const N = W * H;
   const lum = new Float32Array(N);
@@ -279,11 +303,99 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+//
+// Pure renderAt(t01) snapshots the user's base values for the modulated
+// control, applies the active mode's cosine envelope, rebuilds, paints, then
+// restores. Same pattern as bevel/effect.js.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // wetness cosine pingpong 0.05 ↔ 0.85 — paper dries and wets.
+    const base = params.wetness;
+    params.wetness = 0.05 + 0.8 * pingPong(t01);
+    return () => { params.wetness = base; };
+  }
+  if(mode === 'bleed'){
+    // smoothing cosine pingpong 0.1 ↔ 0.95 — washes broaden then tighten.
+    const base = params.smoothing;
+    params.smoothing = 0.1 + 0.85 * pingPong(t01);
+    return () => { params.smoothing = base; };
+  }
+  if(mode === 'tone'){
+    // tone cosine pingpong 0.05 ↔ 0.85 — palette mix breathes.
+    const base = params.tone;
+    params.tone = 0.05 + 0.8 * pingPong(t01);
+    return () => { params.tone = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseWet = params.wetness;
+  const baseEdge = params.edgeStrength;
+  params.wetness = ax;
+  params.edgeStrength = ay;
+  return () => { params.wetness = baseWet; params.edgeStrength = baseEdge; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  // All modulated keys (wetness, smoothing, tone, edgeStrength) live inside
+  // buildOutput — no preprocess re-run needed.
+  buildOutput();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['fit','bg']);
@@ -293,16 +405,32 @@ function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   buildPaletteLUT(params.palette);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
     if(key === 'palette'){ buildPaletteLUT(params.palette); schedule('build'); return; }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -317,6 +445,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

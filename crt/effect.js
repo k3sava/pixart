@@ -124,6 +124,9 @@ const params = {
   gamma:                  1,
   blackPoint:             0,
   whitePoint:             255,
+  animate:                false,
+  mode:                   'glow',
+  interactive:            false,
   fit:                    'cover',
   bg:                     '#000000',
 };
@@ -646,12 +649,107 @@ function schedule(){
   requestAnimationFrame(() => { rafQueued = false; render(); });
 }
 
+// ---------- animation ----------
+//
+// Same envelope pattern as bevel/ascii — applyMode(t01) mutates params before
+// render() reads them as uniforms, then we restore the user's base values so
+// the GUI numbers don't visibly jitter. cycleMs=15000 for a seamless loop.
+function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'glow'){
+    // Phosphor breathes — bloomIntensity cosine pingpong around the default.
+    // Defaults 0.45; sweep 0.10 ↔ 1.20 keeps glow readable without blowing
+    // highlights. Smooth cosine so loop closes at t=0 / t=1.
+    const base = params.bloomIntensity;
+    params.bloomIntensity = 0.65 + 0.55 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.bloomIntensity = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint drifts 130 ↔ 255, same envelope as bevel/ascii tone. The
+    // phosphor reads warmer at low whitePoint, crisper at full range.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'converge'){
+    // RGB convergence drift — redConvergenceOffsetX cosine ±1.5 around the
+    // default (+0.01). At extremes the red and blue ghosts separate, the
+    // classic out-of-alignment CRT look; passes through default at midpoint.
+    const base = params.redConvergenceOffsetX;
+    params.redConvergenceOffsetX = base + 1.5 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.redConvergenceOffsetX = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseDist = params.distortion;
+  const baseGlow = params.glowIntensity;
+  // Cursor IS the bezel pressure: X→barrel distortion 0..0.08, Y→glow 0..1.
+  // Right edge curves the tube more; bottom blooms the phosphor.
+  params.distortion    = ax * 0.08;
+  params.glowIntensity = ay * 1.0;
+  return () => {
+    params.distortion    = baseDist;
+    params.glowIntensity = baseGlow;
+  };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  render();
+  gl.finish();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(){ render(); gl.finish(); },
-  pauseRender(){},
-  resumeRender(){ render(); gl.finish(); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { render(); gl.finish(); }
+    return cv;
+  },
 };
 
 // ---------- init ----------
@@ -665,8 +763,20 @@ function init(){
       schedule();
       return;
     }
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule(); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule();
+      return;
+    }
+    if(params.animate) return; // animation loop owns the canvas
     schedule();
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule(); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => {
       needsSourceUpload = true;

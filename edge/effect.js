@@ -1,9 +1,39 @@
 // pixart/edge — Sobel edge sketch.
 //
 // Sobel 3×3 on alpha-composited luminance, evaluated on a sparse grid
-// (stepSize). When |G| > threshold the cell emits a black rounded square
-// whose size maps mag → [minDotSize..maxDotSize]. Defaults: white bg,
-// black ink. No animation, no interactivity.
+// (stepSize). When |G| > lightnessThreshold the cell emits a black rounded
+// square whose size maps mag → [minDotSize..maxDotSize].
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on the static
+// Sobel sketch — matches the bevel pattern (applyMode / applyInteractive /
+// renderAt(t01) / WAEffect.cycleMs=15000).
+//
+// Defaults were chosen by sweeping each control alone against `portrait.jpg`
+// in Playwright (see docs/step2-research.md / docs/step2-screenshots/).
+//
+//   lightnessThreshold=80 — bundle default; portrait reads as a dot field,
+//                           background suppressed. >150 strips the figure.
+//   maxDotSize=12         — bundle default; the dot field has enough mass
+//                           to read at canvasSize=600. <6 thins to ghost.
+//   stepSize=5            — bundle default; grid density. >10 turns the
+//                           subject into a stipple sparse enough to lose.
+//   whitePoint=255        — pre-tone-mode baseline. `tone` drifts it.
+//
+// Animation modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   breath  — maxDotSize pingpongs 4 ↔ 20. Dots inhale to chunky overlap at
+//             t=0.5 and exhale to a thin field at t=0,1. Single most legible
+//             gesture: the field itself breathes.
+//   tone    — whitePoint drifts 130 ↔ 255 (cosine). Pre-Sobel contrast
+//             pulses, so the dot field thickens (low wp clips midtones to
+//             white → fewer gradients above threshold) and thins.
+//   reveal  — lightnessThreshold pingpongs 30 ↔ 180. At low threshold the
+//             whole portrait emerges in dots; at high threshold only the
+//             strongest edges survive — rhythmic reveal/conceal.
+//
+// Interactive: cursor X → lightnessThreshold (30..200), cursor Y → maxDotSize
+// (4..30). One metaphor: cursor is the etcher's pressure — right & down =
+// more aggressive selection + bigger marks.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -24,6 +54,9 @@ const params = {
   maxDotSize:        12,
   cornerRadius:      8,
   stepSize:          5,
+  animate:           false,
+  mode:              'breath',
+  interactive:       false,
   showEffect:        true,
   fit:               'cover',
   bg:                '#ffffff',
@@ -244,11 +277,103 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // maxDotSize 4 ↔ 20 — dots inhale at t=0.5, exhale at t=0,1.
+    const base = params.maxDotSize;
+    params.maxDotSize = 4 + 16 * pingPong(t01);
+    return () => { params.maxDotSize = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint 130 ↔ 255 cosine (preprocessor key).
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'reveal'){
+    // lightnessThreshold 30 ↔ 180 pingpong — edges emerge & recede.
+    const base = params.lightnessThreshold;
+    params.lightnessThreshold = 30 + 150 * pingPong(t01);
+    return () => { params.lightnessThreshold = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseTh  = params.lightnessThreshold;
+  const baseMax = params.maxDotSize;
+  params.lightnessThreshold = 30 + ax * 170;   // 30..200
+  params.maxDotSize         = 4  + ay * 26;    // 4..30
+  return () => {
+    params.lightnessThreshold = baseTh;
+    params.maxDotSize         = baseMax;
+  };
+}
+
+// tone-mode modulates whitePoint (preprocessor key) — must re-run preprocess.
+// breath / reveal / interactive touch buildRects keys only.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildRects();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blur','grain','gamma','blackPoint','whitePoint','fit','bg']);
@@ -258,15 +383,31 @@ const PAINT_KEYS = new Set(['cornerRadius','showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -281,6 +422,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -1,4 +1,4 @@
-// pixart/recolor — gradient-map recolour (static render, no animation).
+// pixart/recolor — gradient-map recolour with animation + interactive cursor.
 //
 // Reverse-engineered from tooooools.app/effects/recolor minified bundle.
 //
@@ -13,9 +13,32 @@
 //   4. Wrap K times: attr = (attr · K) % 1
 //   5. Look up in a 3-stop piecewise-linear gradient (positions in [0,1]).
 //
-// Reference defaults: posterizeSteps:255, noiseIntensity:0, noiseScale:0.3,
-//   noiseGamma:1, gradientRepetitions:1, colorAttribute:"brightness",
-//   gradientStops:[{0,#00278a},{50,#fe76ec},{100,#fefffa}], showEffect:true.
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone across its full slider
+// range against `portrait.jpg` in Playwright. Sweet spot for "gradient-map
+// reads AND portrait stays recognisable":
+//
+//   posterizeSteps=8        — 8 distinct bands; ≥32 looks continuous, ≤3
+//                             dissolves face into colour blobs.
+//   noiseIntensity=0.18     — Perlin breaks up the banding edges (dithered
+//                             look); >0.5 shreds the face.
+//   gradientRepetitions=1   — 2+ produces psychedelic stripes, beautiful but
+//                             the face stops reading.
+//   whitePoint=255          — full tonal range, mode shifts it for `tone`.
+//
+// Animation modes (each = cycleMs=15000 cosine envelope):
+//
+//   posterize — posterizeSteps cycles 3 ↔ 24 (band count breathes;
+//               flat-poster → fine-poster → flat).
+//   tone      — whitePoint drifts 140 ↔ 255 (preprocessor key; tones rise
+//               and fall, palette redistributes across the face).
+//   hue       — all three gradient stops rotate hue by 0 ↔ 360° (palette
+//               cycles through the colour wheel).
+//
+// Interactive: cursor X drives posterizeSteps (2..32 — left = chunky bands,
+// right = fine bands), cursor Y drives noiseIntensity (0..1 — top = clean,
+// bottom = noisy). One metaphor: cursor sculpts the gradient texture.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -46,6 +69,10 @@ const params = {
   stop2Color:        '#fe76ec',
   stop3Pos:           100,
   stop3Color:        '#fefffa',
+  // Animation / interactive.
+  animate:            false,
+  mode:              'posterize',
+  interactive:        false,
   // Shared chrome.
   fit:               'cover',
   bg:                '#0a0a0a',
@@ -228,6 +255,28 @@ function rgbToHsl(r, g, b){
   }
   return [h, s, l];
 }
+function hslToRgb(h, s, l){
+  h = ((h % 360) + 360) % 360 / 360;
+  if(s === 0){
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hk = (t) => {
+    let tt = t;
+    if(tt < 0) tt += 1; if(tt > 1) tt -= 1;
+    if(tt < 1/6) return p + (q - p) * 6 * tt;
+    if(tt < 1/2) return q;
+    if(tt < 2/3) return p + (q - p) * (2/3 - tt) * 6;
+    return p;
+  };
+  return [
+    Math.round(hk(h + 1/3) * 255),
+    Math.round(hk(h)       * 255),
+    Math.round(hk(h - 1/3) * 255),
+  ];
+}
 
 // ---------- gradient LUT (3 stops, baked) ----------
 const LUT_SIZE = 1024;
@@ -235,12 +284,25 @@ const LUT_R = new Uint8ClampedArray(LUT_SIZE);
 const LUT_G = new Uint8ClampedArray(LUT_SIZE);
 const LUT_B = new Uint8ClampedArray(LUT_SIZE);
 
+// Optional hue-rotation override for the `hue` animation mode.
+// When non-null, gradient stops are rotated by this many degrees before LUT.
+let hueRotateDeg = 0;
+
+function rotateRgbHue(rgb, deg){
+  if(!deg) return rgb;
+  const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+  return hslToRgb(h + deg, s, l);
+}
+
 function resolveStops(){
   const raw = [
     { pos: clamp(params.stop1Pos, 0, 100) / 100, col: hexToRgb(params.stop1Color) },
     { pos: clamp(params.stop2Pos, 0, 100) / 100, col: hexToRgb(params.stop2Color) },
     { pos: clamp(params.stop3Pos, 0, 100) / 100, col: hexToRgb(params.stop3Color) },
   ];
+  if(hueRotateDeg){
+    for(const s of raw) s.col = rotateRgbHue(s.col, hueRotateDeg);
+  }
   raw.sort((a, b) => a.pos - b.pos);
   return raw;
 }
@@ -359,12 +421,111 @@ function paint(){
   ctx.restore();
 }
 
-// ---------- WAEffect contract (static; no animation) ----------
+// ---------- animation ----------
+//
+// One pure renderAt(t01) — same pattern as bevel:
+//   1. snapshot user-set values of the modulated control;
+//   2. apply mode envelope;
+//   3. preprocess if needed (tone); rebuild; paint;
+//   4. restore base values so GUI doesn't jitter.
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'posterize'){
+    // 3 ↔ 24 cosine. Low end = chunky 3-band poster; high = fine 24-band.
+    const base = params.posterizeSteps;
+    params.posterizeSteps = Math.round(3 + 21 * pingPong(t01));
+    return () => { params.posterizeSteps = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint drifts 140 ↔ 255. Preprocessor key — caller re-preprocesses.
+    const base = params.whitePoint;
+    params.whitePoint = 197.5 + 57.5 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'hue'){
+    // Rotate gradient stops 0 → 360°. LUT must be rebuilt; restore = 0.
+    hueRotateDeg = (t01 * 360) % 360;
+    buildGradientLUT();
+    return () => { hueRotateDeg = 0; buildGradientLUT(); };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseSteps = params.posterizeSteps;
+  const baseNoise = params.noiseIntensity;
+  // X: 2..32 posterize bands. Y: 0..1 noise intensity.
+  params.posterizeSteps = Math.round(2 + ax * 30);
+  params.noiseIntensity = ay;
+  return () => {
+    params.posterizeSteps = baseSteps;
+    params.noiseIntensity = baseNoise;
+  };
+}
+
+// Track whether last frame baked a modulated whitePoint into preprocessed
+// buffer. If so, the next non-tone frame must re-preprocess to wipe it.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildOutput();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
+// ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 // Pipeline buckets.
@@ -377,17 +538,33 @@ function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   buildGradientLUT();
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('pre'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return; // animation loop owns the canvas
     if(GRADIENT_KEYS.has(key)){ buildGradientLUT(); schedule('build'); return; }
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else if(PAINT_KEYS.has(key)) schedule('paint');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -402,6 +579,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 if(document.readyState === 'loading'){

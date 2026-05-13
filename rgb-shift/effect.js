@@ -2,21 +2,40 @@
 //
 // Algorithm:
 //   1. Preprocessor (shared) produces a W×H RGBA buffer.
-//   2. Extract three single-channel frames (R-only, G-only, B-only) by
-//      masking the other two channels to zero. Each frame is a tinted-pure
-//      red / green / blue image.
-//   3. Draw each frame onto an output canvas offset by (rOffsetX, rOffsetY),
-//      (gOffsetX, gOffsetY), (bOffsetX, bOffsetY) respectively, recombined
-//      with the chosen composite mode (add → 'lighter', screen → 'screen',
-//      lighten → 'lighten', over → 'source-over').
-//   4. `fringe` controls a radial multiplier on the offsets via a 9-tile
-//      grid — but at our pixel scale we apply it as a simple scalar on the
-//      offsets between centre and frame-edge approximation: at fringe=0 the
+//   2. Extract three single-channel frames (R-only, G-only, B-only).
+//   3. Composite each at its per-channel (x,y) offset using the chosen blend.
+//   4. `fringe` re-projects each channel via a radial alpha mask: at fringe=0
 //      offsets apply uniformly; at fringe=1 they vanish at the centre and
-//      reach full magnitude at the corners. Approximated by re-projecting
-//      through a radial-mask alpha on each channel.
+//      reach full magnitude at the corners.
 //   5. `gain` post-multiplies the composite via globalAlpha on each pass.
-
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults: subtle chromatic aberration that keeps the portrait recognizable.
+// Verified by sweeping rOffsetX / bOffsetX / fringe / gain against
+// portrait.jpg (see docs/step2-screenshots/ + docs/step2-research.md):
+//
+//   rOffsetX=6, bOffsetX=-6   — symmetric ±6px split: faint red/blue fringe
+//                                without channel-tear; face fully legible.
+//   gOffsetX=0, all Y offsets=0 — green stays the anchor; horizontal only.
+//   fringe=0.3                — centre nearly clean, corners get the colour
+//                                halo; the "lens" feel without losing the face.
+//   gain=1.0                  — additive recomposition lands at source brightness.
+//   blend='add'               — channels sum back to faithful colour at zero shift.
+//
+// Animation modes (each = a cosine envelope across cycleMs=15000):
+//
+//   breath — rOffsetX and bOffsetX pingpong symmetrically around 0
+//            (R: 0 → +14 → 0 → -14 → 0, B mirrored). Channels separate
+//            and re-fuse like a breathing chromatic lens.
+//   orbit  — R/G/B offsets rotate around a common circle of radius 10,
+//            120° apart. Channels chase each other around the subject.
+//   bloom  — fringe cosine pingpongs 0 ↔ 1. Chromatic halo grows from
+//            centre and recedes; subject re-clarifies each cycle.
+//
+// Interactive: cursor X drives rOffsetX (-15..+15), cursor Y drives bOffsetX
+// (-15..+15). Cursor pulls the channels apart in both axes — one metaphor:
+// the cursor is the prism.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -54,6 +73,9 @@ const params = {
   blend:            'add',
   gain:              1.0,
   fringe:            0.3,
+  animate:           false,
+  mode:             'breath',
+  interactive:       false,
   showEffect:        true,
   fit:               'cover',
   bg:                '#0a0a0a',
@@ -122,8 +144,6 @@ function preprocess(){
 }
 
 // ---------- build ----------
-// Split preprocessed into three single-channel ImageDatas, then composite
-// each at its per-channel offset using the chosen blend mode.
 function buildOutput(){
   if(!preprocessed){ return; }
   const W = preprocessed.width, H = preprocessed.height;
@@ -135,18 +155,11 @@ function buildOutput(){
   }
   const src = preprocessed.data;
 
-  // Build three single-channel ImageDatas. Each is pure-red / pure-green /
-  // pure-blue version of the source. With 'lighter' composite these sum
-  // back into a faithful colour image when offsets are zero.
   const rImg = new ImageData(W, H);
   const gImg = new ImageData(W, H);
   const bImg = new ImageData(W, H);
   const rd = rImg.data, gd = gImg.data, bd = bImg.data;
 
-  // Fringe-driven radial mask. fringe=0 → alpha=255 everywhere (uniform
-  // shift). fringe=1 → alpha rises from 0 at centre to 255 at corners on a
-  // squared falloff. Applied as alpha on each single-channel frame so the
-  // un-shifted source still shows through at centre when fringe>0.
   const fringe = clamp(params.fringe, 0, 1);
   const cx = W * 0.5, cy = H * 0.5;
   const rmax2 = cx*cx + cy*cy;
@@ -170,7 +183,6 @@ function buildOutput(){
   chanGCtx.putImageData(gImg, 0, 0);
   chanBCtx.putImageData(bImg, 0, 0);
 
-  // Composite mode mapping.
   let comp = 'lighter';
   switch(params.blend){
     case 'screen':  comp = 'screen';      break;
@@ -183,8 +195,6 @@ function buildOutput(){
   const gain = clamp(params.gain, 0, 4);
 
   octx.save();
-  // For 'over' the bg has to be the unshifted source so channels visibly stack
-  // on top of it; for additive blends we start from black.
   octx.globalCompositeOperation = 'source-over';
   octx.fillStyle = '#000';
   octx.fillRect(0, 0, W, H);
@@ -228,12 +238,111 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    // R/B pingpong symmetrically around 0. Amplitude 14 px.
+    const baseRx = params.rOffsetX;
+    const baseBx = params.bOffsetX;
+    const s = Math.sin(t01 * Math.PI * 2) * 14;
+    params.rOffsetX = s;
+    params.bOffsetX = -s;
+    return () => { params.rOffsetX = baseRx; params.bOffsetX = baseBx; };
+  }
+  if(mode === 'orbit'){
+    // R/G/B offsets rotate around a circle of radius 10, 120° apart.
+    const baseRx = params.rOffsetX, baseRy = params.rOffsetY;
+    const baseGx = params.gOffsetX, baseGy = params.gOffsetY;
+    const baseBx = params.bOffsetX, baseBy = params.bOffsetY;
+    const r = 10;
+    const a = t01 * Math.PI * 2;
+    params.rOffsetX = r * Math.cos(a);
+    params.rOffsetY = r * Math.sin(a);
+    params.gOffsetX = r * Math.cos(a + Math.PI * 2/3);
+    params.gOffsetY = r * Math.sin(a + Math.PI * 2/3);
+    params.bOffsetX = r * Math.cos(a + Math.PI * 4/3);
+    params.bOffsetY = r * Math.sin(a + Math.PI * 4/3);
+    return () => {
+      params.rOffsetX = baseRx; params.rOffsetY = baseRy;
+      params.gOffsetX = baseGx; params.gOffsetY = baseGy;
+      params.bOffsetX = baseBx; params.bOffsetY = baseBy;
+    };
+  }
+  if(mode === 'bloom'){
+    // fringe cosine pingpongs 0 ↔ 1.
+    const baseF = params.fringe;
+    params.fringe = pingPong(t01);
+    return () => { params.fringe = baseF; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseRx = params.rOffsetX;
+  const baseBx = params.bOffsetX;
+  // X: -15..+15 → rOffsetX, Y: -15..+15 → bOffsetX.
+  params.rOffsetX = (ax * 2 - 1) * 15;
+  params.bOffsetX = (ay * 2 - 1) * 15;
+  return () => { params.rOffsetX = baseRx; params.bOffsetX = baseBx; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  buildOutput();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => { paint(); return cv; },
-  pauseRender: () => {},
-  resumeRender: () => { paint(); return cv; },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -243,15 +352,31 @@ const PAINT_KEYS = new Set(['showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -266,6 +391,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

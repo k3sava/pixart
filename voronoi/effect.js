@@ -13,9 +13,47 @@
 //
 // Perf: spatial-hash the seeds into a coarse grid, iterate output pixels,
 // only check seeds inside nearby grid cells. Inner loop touches ≪ N seeds.
+//
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone across its full slider
+// range against `portrait.jpg` in Playwright (see docs/step2-screenshots/ and
+// docs/step2-research.md). Sweet spot:
+//
+//   seedCount=200            — portrait reads at any value ≥120; 200 = best
+//                              "cellular mosaic" feel without losing the face.
+//   seedSource=luminance-peaks — concentrates seeds on bright facial features
+//                              (eyes, forehead, highlights), making the
+//                              subject recognizable in the partition.
+//   metric=euclidean         — round cells; manhattan/chebyshev produce
+//                              square tiles which read less like cells.
+//   relax=2                  — 2 Lloyd iterations evens out seed density
+//                              while preserving the luminance-driven bias.
+//   borderWidth=0.5          — thin dark mortar between cells; ≥1.5 starts
+//                              dominating the image, 0 looks like a posterised
+//                              flat sample.
+//   paletteShift=0           — true colours by default; hue mode sweeps live.
+//   colorMode=sample         — fastest + most recognizable; average smooths
+//                              cells nicely but adds an O(N) pass per build.
+//
+// Animation modes (each = a gentle envelope across cycleMs=15000):
+//
+//   hue    — paletteShift sweeps 0 → 360 across one loop. PAINT-ONLY: the
+//            tessellation (cellIdx + seed positions) is cached after the
+//            first build, and only the seed-colour rotation + ImageData
+//            rewrite runs per frame. Cheap (~5-10ms/frame).
+//   breath — seedCount cosine pingpongs between 90 and 320. Cells multiply
+//            and coalesce — feels alive. Requires a full rebuild per frame,
+//            so this is the heaviest mode (~20-40ms/frame at canvasSize=600).
+//   relax  — relax cosine pingpongs 0 → 5 → 0. Cells start scattered (raw
+//            poisson) and settle into an even centroidal tessellation, then
+//            spread back. Full rebuild per frame.
+//
+// Interactive metaphor: cursor IS the cell-field controller.
+//   cursor X → seedCount (60..400)  — left = sparse / right = dense
+//   cursor Y → relax     (0..6)     — top = scattered / bottom = settled
+//
 'use strict';
-
-const CYCLE_MS = 0;
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -33,13 +71,17 @@ const params = {
   whitePoint:  255,
   // Voronoi-specific.
   seedCount:    200,
-  seedSource:   'poisson',     // poisson | luminance-peaks | edge-density | uniform-grid
-  metric:       'euclidean',   // euclidean | manhattan | chebyshev | secondary
-  relax:        1,             // Lloyd iterations
+  seedSource:   'luminance-peaks',
+  metric:       'euclidean',
+  relax:        2,
   borderWidth:  0.5,
   borderColor:  '#0a0a0a',
-  colorMode:    'sample',      // sample | average | gradient
+  colorMode:    'sample',
   paletteShift: 0,
+  // Pattern-set.
+  animate:      false,
+  mode:         'hue',
+  interactive:  false,
   // Shared chrome.
   showEffect:  true,
   fit:         'cover',
@@ -52,6 +94,10 @@ let preprocessed = null;     // source ImageData @ source-space resolution
 let outImg       = null;     // tessellated output @ same resolution
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
+
+// Cached tessellation for paint-only modes (e.g. hue).
+// Holds the geometry of the last build so we can re-skin without re-tessellating.
+let cache = null;  // {W, H, cellIdx, sxs, sys, seedSrcR, seedSrcG, seedSrcB, borderMask}
 
 // ─── helpers ──────────────────────────────────────────────────
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
@@ -107,6 +153,7 @@ function preprocess(){
   sctx.drawImage(srcCv, 0, 0, W, H);
   sctx.restore();
   preprocessed = sctx.getImageData(0, 0, W, H);
+  cache = null;  // source changed → invalidate cache
 }
 
 // ─── colour helpers ──────────────────────────────────────────
@@ -175,7 +222,6 @@ function generateSeeds(N, W, H, rng){
     return seeds;
   }
   if(sourceMode === 'poisson'){
-    // Best-candidate sampling (Mitchell 1991), K=10.
     const K = 10;
     seeds.push([rng() * W, rng() * H]);
     for(let i = 1; i < N; i++){
@@ -242,8 +288,6 @@ function generateSeeds(N, W, H, rng){
 }
 
 // ─── metrics ────────────────────────────────────────────────
-// Return squared/raw distance (monotonic — fine for argmin). Border + secondary
-// paths sqrt() euclidean explicitly.
 function chooseMetric(name){
   switch(name){
     case 'manhattan':  return (dx, dy) => Math.abs(dx) + Math.abs(dy);
@@ -285,11 +329,8 @@ function lloydRelax(seeds, iter, W, H){
 }
 
 // ─── spatial hash ───────────────────────────────────────────
-// Bin seeds by coarse grid. For each pixel, scan only nearby bins (expanding
-// radius until we have any candidate, then one more ring to guarantee F1/F2).
 function buildHash(seeds, W, H){
   const N = seeds.length;
-  // target ~1 seed/cell on average
   const cell = Math.max(4, Math.round(Math.sqrt((W * H) / Math.max(1, N))));
   const gw = Math.max(1, Math.ceil(W / cell));
   const gh = Math.max(1, Math.ceil(H / cell));
@@ -315,7 +356,7 @@ function buildHash(seeds, W, H){
 
 // ─── output build ────────────────────────────────────────────
 function buildOutput(){
-  if(!preprocessed){ outImg = null; return; }
+  if(!preprocessed){ outImg = null; cache = null; return; }
   const W = preprocessed.width, H = preprocessed.height;
   if(!outImg || outImg.width !== W || outImg.height !== H){
     outImg = new ImageData(W, H);
@@ -324,17 +365,13 @@ function buildOutput(){
   const dst = outImg.data;
 
   const N = Math.max(2, (params.seedCount | 0));
-  // Deterministic RNG seeded from N + seedSource hash so cells are stable.
   const sourceCode = ({poisson:1,'luminance-peaks':2,'edge-density':3,'uniform-grid':4})[params.seedSource] || 0;
   const rng = mulberry32(((N * 131) ^ (sourceCode * 17) ^ 0xC0FFEE) >>> 0);
 
-  // 1. seeds
   let seeds = generateSeeds(N, W, H, rng);
-  // 2. lloyd relaxation
   const iter = Math.max(0, params.relax | 0);
   if(iter > 0) seeds = lloydRelax(seeds, iter, W, H);
 
-  // 3. metric
   const effMetric = params.metric;
   const mFn = chooseMetric(effMetric);
   const useSecondary = (effMetric === 'secondary');
@@ -343,8 +380,12 @@ function buildOutput(){
   const wantBorder = borderPx > 0;
   const hue = params.paletteShift;
 
-  // 4. pre-sample seed colours
   const Ns = seeds.length;
+  // Source-sampled seed RGB (un-hue-rotated) — kept so paint-only hue can
+  // re-rotate per frame.
+  const seedSrcR = new Uint8ClampedArray(Ns);
+  const seedSrcG = new Uint8ClampedArray(Ns);
+  const seedSrcB = new Uint8ClampedArray(Ns);
   const seedR = new Uint8ClampedArray(Ns);
   const seedG = new Uint8ClampedArray(Ns);
   const seedB = new Uint8ClampedArray(Ns);
@@ -352,7 +393,9 @@ function buildOutput(){
     const sx = clamp(seeds[k][0] | 0, 0, W - 1);
     const sy = clamp(seeds[k][1] | 0, 0, H - 1);
     const j = (sy * W + sx) * 4;
-    let r = src[j], g = src[j+1], b = src[j+2];
+    const r0 = src[j], g0 = src[j+1], b0 = src[j+2];
+    seedSrcR[k] = r0; seedSrcG[k] = g0; seedSrcB[k] = b0;
+    let r = r0, g = g0, b = b0;
     if(hue !== 0){
       const c = rotateHueRgb(r, g, b, hue);
       r = c[0]; g = c[1]; b = c[2];
@@ -360,20 +403,18 @@ function buildOutput(){
     seedR[k] = r; seedG[k] = g; seedB[k] = b;
   }
 
-  // 5. flat seed position arrays
   const sxs = new Float32Array(Ns);
   const sys = new Float32Array(Ns);
   for(let k = 0; k < Ns; k++){ sxs[k] = seeds[k][0]; sys[k] = seeds[k][1]; }
 
-  // 6. spatial hash
   const hash = buildHash(seeds, W, H);
   const { cell, gw, gh, offsets, bins } = hash;
 
   const useGradient = (params.colorMode === 'gradient');
   const useAverage  = (params.colorMode === 'average');
   const cellIdx = new Int32Array(W * H);
+  const borderMask = new Uint8Array(W * H);
 
-  // 7. tessellate
   for(let y = 0; y < H; y++){
     const gyP = clamp(y / cell | 0, 0, gh - 1);
     for(let x = 0; x < W; x++){
@@ -382,9 +423,6 @@ function buildOutput(){
       let best = -1, second = -1;
       let bd = Infinity, sd = Infinity;
 
-      // Expanding-ring search. Start at radius 0 (own cell), expand until we
-      // have F1 (and one more ring to lock F1/F2 correctness, since a closer
-      // seed could live in the next ring).
       let radius = 0;
       const maxR = Math.max(gw, gh);
       let foundRing = -1;
@@ -393,7 +431,6 @@ function buildOutput(){
         const y0 = Math.max(0, gyP - radius), y1 = Math.min(gh - 1, gyP + radius);
         for(let cy = y0; cy <= y1; cy++){
           for(let cxc = x0; cxc <= x1; cxc++){
-            // Only scan the ring border (skip interior already scanned).
             if(radius > 0 && cxc > x0 && cxc < x1 && cy > y0 && cy < y1) continue;
             const ci = cy * gw + cxc;
             const start = offsets[ci], end = offsets[ci + 1];
@@ -406,7 +443,6 @@ function buildOutput(){
           }
         }
         if(best !== -1 && foundRing === -1) foundRing = radius;
-        // After first ring with a hit, do one more expansion to guarantee F1/F2.
         if(foundRing !== -1 && radius >= foundRing + 1) break;
         radius++;
       }
@@ -414,7 +450,8 @@ function buildOutput(){
       if(second === -1) second = best;
 
       const j = (y * W + x) * 4;
-      cellIdx[y * W + x] = best;
+      const pi = y * W + x;
+      cellIdx[pi] = best;
 
       let r, g, b;
       if(useSecondary){
@@ -437,6 +474,7 @@ function buildOutput(){
         }
       }
 
+      let isBorder = false;
       if(wantBorder){
         let delta;
         if(params.metric === 'euclidean' || params.metric === 'secondary'){
@@ -446,8 +484,10 @@ function buildOutput(){
         }
         if(delta < borderPx){
           r = borderRgb[0]; g = borderRgb[1]; b = borderRgb[2];
+          isBorder = true;
         }
       }
+      borderMask[pi] = isBorder ? 1 : 0;
       dst[j]   = r;
       dst[j+1] = g;
       dst[j+2] = b;
@@ -476,14 +516,78 @@ function buildOutput(){
       } else { avR[k] = seedR[k]; avG[k] = seedG[k]; avB[k] = seedB[k]; }
     }
     for(let i = 0, j = 0; i < cellIdx.length; i++, j += 4){
-      if(wantBorder && dst[j] === borderRgb[0] && dst[j+1] === borderRgb[1] && dst[j+2] === borderRgb[2]) continue;
+      if(borderMask[i]) continue;
       const c = cellIdx[i];
       dst[j] = avR[c]; dst[j+1] = avG[c]; dst[j+2] = avB[c];
     }
+    // Cache: store the averaged (un-hue-rotated) per-cell colour so hue mode
+    // can re-rotate cheaply.
+    const baseR = new Uint8ClampedArray(Ns);
+    const baseG = new Uint8ClampedArray(Ns);
+    const baseB = new Uint8ClampedArray(Ns);
+    const sumR2 = new Float64Array(Ns);
+    const sumG2 = new Float64Array(Ns);
+    const sumB2 = new Float64Array(Ns);
+    const cnt2  = new Uint32Array(Ns);
+    for(let i = 0, j = 0; i < cellIdx.length; i++, j += 4){
+      const c = cellIdx[i];
+      sumR2[c] += src[j]; sumG2[c] += src[j+1]; sumB2[c] += src[j+2];
+      cnt2[c]++;
+    }
+    for(let k = 0; k < Ns; k++){
+      if(cnt2[k] > 0){ baseR[k] = sumR2[k]/cnt2[k]; baseG[k] = sumG2[k]/cnt2[k]; baseB[k] = sumB2[k]/cnt2[k]; }
+      else { baseR[k] = seedSrcR[k]; baseG[k] = seedSrcG[k]; baseB[k] = seedSrcB[k]; }
+    }
+    cache = { W, H, cellIdx, baseR, baseG, baseB, borderMask, borderRgb, mode: 'average' };
+  } else {
+    cache = { W, H, cellIdx, baseR: seedSrcR, baseG: seedSrcG, baseB: seedSrcB, borderMask, borderRgb, mode: 'sample' };
   }
 }
 
+// ─── paint-only recolour (hue mode) ──────────────────────────
+// Reuses cached tessellation; only seed colours rotate + dst is rewritten.
+// O(Ns + W*H) — no nearest-seed search.
+function recolorFromCache(hueDeg){
+  if(!cache || !outImg) return false;
+  const { W, H, cellIdx, baseR, baseG, baseB, borderMask, borderRgb } = cache;
+  if(outImg.width !== W || outImg.height !== H) return false;
+  const Ns = baseR.length;
+  const rotR = new Uint8ClampedArray(Ns);
+  const rotG = new Uint8ClampedArray(Ns);
+  const rotB = new Uint8ClampedArray(Ns);
+  const tone = (typeof params._toneLevel === 'number') ? params._toneLevel : 1;
+  if(hueDeg === 0){
+    if(tone === 1){
+      rotR.set(baseR); rotG.set(baseG); rotB.set(baseB);
+    } else {
+      for(let k = 0; k < Ns; k++){
+        rotR[k] = baseR[k] * tone;
+        rotG[k] = baseG[k] * tone;
+        rotB[k] = baseB[k] * tone;
+      }
+    }
+  } else {
+    for(let k = 0; k < Ns; k++){
+      const c = rotateHueRgb(baseR[k], baseG[k], baseB[k], hueDeg);
+      rotR[k] = c[0] * tone; rotG[k] = c[1] * tone; rotB[k] = c[2] * tone;
+    }
+  }
+  const dst = outImg.data;
+  const br = borderRgb[0], bg = borderRgb[1], bb = borderRgb[2];
+  for(let i = 0, j = 0; i < cellIdx.length; i++, j += 4){
+    if(borderMask[i]){
+      dst[j] = br; dst[j+1] = bg; dst[j+2] = bb;
+    } else {
+      const c = cellIdx[i];
+      dst[j] = rotR[c]; dst[j+1] = rotG[c]; dst[j+2] = rotB[c];
+    }
+    dst[j+3] = 255;
+  }
+  return true;
+}
+
 // ─── paint ─────────────────────────────────────────────────────
+let paintScratch = null;
 function paint(){
   const W = cv.width, H = cv.height;
   ctx.save();
@@ -509,20 +613,112 @@ function paint(){
   }
 
   if(!outImg){ ctx.restore(); return; }
-  const tmp = document.createElement('canvas');
-  tmp.width = imgW; tmp.height = imgH;
-  tmp.getContext('2d').putImageData(outImg, 0, 0);
+  if(!paintScratch || paintScratch.width !== imgW || paintScratch.height !== imgH){
+    paintScratch = document.createElement('canvas');
+    paintScratch.width = imgW; paintScratch.height = imgH;
+  }
+  paintScratch.getContext('2d').putImageData(outImg, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tmp, ox, oy, dw, dh);
+  ctx.drawImage(paintScratch, ox, oy, dw, dh);
   ctx.restore();
 }
 
-// ─── WAEffect contract (no animation) ─────────────────────────
+// ─── animation ─────────────────────────────────────────────
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+// applyMode returns {restore, paintOnly}:
+//   restore   — rolls params back so the GUI doesn't visibly jitter.
+//   paintOnly — true if this mode only modulates a colour-side param,
+//               in which case we skip buildOutput and recolour from cache.
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'hue'){
+    const base = params.paletteShift;
+    params.paletteShift = (t01 * 360) % 360;
+    return { restore: () => { params.paletteShift = base; }, paintOnly: true };
+  }
+  if(mode === 'tone'){
+    // Cells pulse from full colour → dark → full colour. Paint-only:
+    // we don't touch the tessellation, we just scale every cell's RGB
+    // toward black under a cosine envelope (1.0 → 0.35 → 1.0).
+    // toneLevel is read by recolorFromCache when set on params.
+    const base = params._toneLevel;
+    params._toneLevel = 0.35 + 0.65 * (0.5 + 0.5 * Math.cos(t01 * Math.PI * 2));
+    return { restore: () => { params._toneLevel = base; }, paintOnly: true };
+  }
+  return { restore: () => {}, paintOnly: false };
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return { restore: () => {}, paintOnly: false };
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseSeed = params.seedCount;
+  const baseRelax = params.relax;
+  // X: seedCount 60..400. Y: relax 0..6.
+  params.seedCount = Math.round(60 + ax * 340);
+  params.relax = Math.round(ay * 6);
+  return {
+    restore: () => { params.seedCount = baseSeed; params.relax = baseRelax; },
+    paintOnly: false,
+  };
+}
+
+function renderAt(t01){
+  const modeApp = params.animate ? applyMode(t01) : { restore: () => {}, paintOnly: false };
+  const intApp  = applyInteractive();
+  // Interactive overrides paintOnly (it changes geometry).
+  const paintOnly = modeApp.paintOnly && !(params.interactive && hasMouse);
+  if(paintOnly && cache){
+    recolorFromCache(params.paletteShift);
+  } else {
+    buildOutput();
+  }
+  paint();
+  intApp.restore();
+  modeApp.restore();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt: () => paint(),
-  pauseRender: () => {},
-  resumeRender: () => paint(),
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -531,15 +727,27 @@ const BUILD_KEYS = new Set(['seedCount','seedSource','metric','relax','borderWid
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('pre'));
   }
@@ -554,6 +762,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

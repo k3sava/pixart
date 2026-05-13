@@ -1,19 +1,53 @@
-// pixart/distort — faithful port of tooooools.app/effects/distort.
-//
-// Distort is an image-driven UV warp. A distortion-map image's RED channel is
-// sampled per output pixel and used to push the source sample by (dx, dy):
+// pixart/distort — image-driven UV warp (displacement map's red channel pushes
+// per-pixel UV by ±strength). Reverse-engineered from
+// tooooools.app/effects/distort. Algorithm:
 //
 //   s = mapRed[x, y]                         // 0..255
 //   if s > threshold:
-//     dx = map(s, 0,255, -xStrength, +xStrength)
-//     dy = map(s, 0,255, -yStrength, +yStrength)
-//     out[x,y] = source[clamp(x+dx,…), clamp(y+dy,…)]
+//     t  = s/127.5 - 1                       // -1..+1
+//     u  = x + t * xDisplacementStrength
+//     v  = y + t * yDisplacementStrength
+//     out[x,y] = source[clamp(u), clamp(v)]
 //   else:
 //     out[x,y] = source[x,y]
 //
-// Pass 2 (2026-05-13): strip everything that doesn't exist on the reference.
-// No `mode`, no `harmonic`, no `phaseOffset`, no `focusRadius`, no animation
-// envelopes, no interactive cursor focus. Static effect: every frame identical.
+// Step 2 (pattern-set): animation + interactive cursor layered on top of the
+// static port. Pattern mirrors bevel/effect.js — same applyMode(t01) /
+// applyInteractive() with restore callbacks so GUI sliders keep showing
+// user intent, not modulated values.
+//
+// Defaults were chosen by sweeping each candidate control alone against
+// portrait.jpg (see docs/step2-screenshots/ and docs/step2-research.md).
+// Sweet spot for "bundled glassy map warps the portrait AND portrait stays
+// recognizable":
+//
+//   xDisplacementStrength=-75 — reference default; portrait reads as a
+//                                molten-glass slide of the face, still legible.
+//   yDisplacementStrength=  0 — reference default; tone mode and interactive
+//                                Y both modulate around this baseline.
+//   displacementThreshold=  0 — reference default; every map pixel writes a
+//                                warped sample. breath mode raises this to
+//                                gate the warp by map brightness.
+//   whitePoint=             255 — full range; tone mode pulls this down to
+//                                  130 (map levels-compress → less warp,
+//                                  portrait crystallises back to clarity).
+//
+// Animation modes (each = one control's cosine envelope, cycleMs=15000):
+//
+//   swell — xDisplacementStrength pingpongs -150 ↔ 0. The warp surges in
+//           and out around the reference baseline; portrait melts and
+//           re-forms once per loop.
+//   tone  — whitePoint drifts 130 ↔ 255 on the preprocessed distortion map.
+//           Low wp clips the map's mid-greys to white → warp falls off →
+//           portrait crystallises; high wp restores full warp.
+//   breath— displacementThreshold pingpongs 0 ↔ 160. The warp gates by map
+//           brightness — at threshold=160 only the brightest streaks warp,
+//           rest of the portrait shows through cleanly.
+//
+// Interactive: cursor X drives xDisplacementStrength (-100..100, left edge
+// pulls hard left, right edge pulls hard right); cursor Y drives
+// yDisplacementStrength (-100..100, top pulls up, bottom pulls down). One
+// metaphor: cursor is the warp's pull direction.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -44,6 +78,10 @@ const params = {
   displacementThreshold:   0,
   xDisplacementStrength:  -75,
   yDisplacementStrength:   0,
+  // Step 2 animation/interaction (no new effect params, only UI toggles).
+  animate:                 false,
+  mode:                    'swell',
+  interactive:             false,
 };
 
 if(window.PIXState) window.PIXState.hydrate(params);
@@ -79,9 +117,6 @@ function fitCanvas(){
 }
 
 // ---------- resample ----------
-//
-// Source resampled to canvasSize × (canvasSize · sourceAspect). Distortion
-// map cover-fit + centre-cropped to match.
 function resample(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
@@ -169,6 +204,9 @@ function preprocessSurface(srcCtx, srcCv){
 
 function preprocess(){
   if(!baseBuf.width) return;
+  // Always re-draw the un-preprocessed surfaces first so the preprocessor
+  // operates on the source map/base, not a cumulatively-mutated one.
+  resample();
   if(params.preprocessTarget === 'base'){
     baseImageData = preprocessSurface(bctx, baseBuf);
     mapImageData  = mctx.getImageData(0, 0, mapBuf.width, mapBuf.height);
@@ -242,12 +280,110 @@ function paint(){
   ctx.restore();
 }
 
-// ---------- WAEffect contract (static effect) ----------
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+// Cosine pingpong: 0 → 1 → 0 across t in [0,1).
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'swell'){
+    // xDisplacementStrength pingpongs from base (-75) to twice-base (-150)
+    // and back. Cosine envelope around the user's set baseline so the warp
+    // surges symmetrically; at t=0 we sit at base (recognisable frame).
+    const base = params.xDisplacementStrength;
+    params.xDisplacementStrength = base + base * pingPong(t01);
+    return () => { params.xDisplacementStrength = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint cosine 130 ↔ 255. Centre 192, amplitude 63.
+    const base = params.whitePoint;
+    params.whitePoint = 192 + 63 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'breath'){
+    // displacementThreshold pingpongs 0 ↔ 160. At 160 only bright streaks
+    // warp; portrait shows through almost cleanly.
+    const base = params.displacementThreshold;
+    params.displacementThreshold = 160 * pingPong(t01);
+    return () => { params.displacementThreshold = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseX = params.xDisplacementStrength;
+  const baseY = params.yDisplacementStrength;
+  // X: -100 (left edge) → +100 (right edge)
+  // Y: -100 (top) → +100 (bottom)
+  params.xDisplacementStrength = -100 + ax * 200;
+  params.yDisplacementStrength = -100 + ay * 200;
+  return () => {
+    params.xDisplacementStrength = baseX;
+    params.yDisplacementStrength = baseY;
+  };
+}
+
+// Track whether last frame baked tone-modulated whitePoint into the
+// preprocessed map buffer; if so, next non-tone frame must re-preprocess.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+  return cv;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
+// ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(_t){ paint(); },
-  pauseRender(){},
-  resumeRender(){ schedule('paint'); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ return renderAt(t || 0); },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else schedule('paint');
+    return cv;
+  },
 };
 
 const RESAMPLE_KEYS = new Set(['canvasSize']);
@@ -275,10 +411,26 @@ function wireDistortionMapInput(){
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(params.animate) return; // animation loop owns the canvas
     if(RESAMPLE_KEYS.has(key))  schedule('resample');
     else if(PRE_KEYS.has(key))  schedule('pre');
     else                        schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('resample'));
   }
@@ -300,6 +452,7 @@ function init(){
   mapImg.src = 'assets/displacement.png';
 
   schedule('resample');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

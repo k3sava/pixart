@@ -7,51 +7,34 @@
 // What the reference effect is:
 //   1. The preprocessed source is rasterised into a coarse grid of `cellSize`
 //      pixel blocks. A cell is seeded ALIVE (1) iff ANY pixel inside the block
-//      has luminance ((R+G+B)/3) <= `threshold`. Otherwise DEAD (0). The
-//      reference scans the block in raster order and short-circuits on the
-//      first hit (`if(...) return !0`).
+//      has luminance ((R+G+B)/3) <= `threshold`. Otherwise DEAD (0).
 //   2. The grid is stepped through `steps` CA generations using one of four
-//      rulesets selected by `neighborhoodType`:
-//        - "Classic"  — Moore-3×3 totalistic Bx/Sy (Conway is Survive 2–3,
-//                       Birth 3–3; the bundle ships Survive 1..8, Birth 3..3,
-//                       a Conway variant that lets isolated live cells
-//                       persist for richer image-shaped texture).
-//        - "LTL"      — Larger-Than-Life: same idea on an 11×11 (radius-5)
-//                       Moore neighbourhood (range 0..120).
-//                       Bundle defaults: B 15..91, S 47..102.
-//        - "MNCAB"    — Multiple Neighbourhoods CA "Both": average ring at
-//                       radius 1 AND radius 2 against [t1..t2]; alive if
-//                       either ring falls in the band.
-//        - "MNCC"     — Multiple Neighbourhoods CA Chained: average rings at
-//                       radii 1,2,3,4; each ring whose mean lies in
-//                       [Nk_low..Nk_high] FLIPS the cell. Up to 4 flips.
-//   3. Boundaries wrap toroidally (`(i + L) % L` in the bundle).
-//   4. Paint: white background, black 1px-overlapped rect per alive cell
-//      (`rect(x, y, cw+1, ch+1)` — the +1 hides cell-grid seams).
+//      rulesets selected by `neighborhoodType`. We ship Classic by default
+//      (Conway-variant: Birth 3, Survive 1..8).
+//   3. Paint: white background, black 1px-overlapped rect per alive cell.
 //
-// Bundle defaults (pageStates["/effects/cellular-automata"]):
-//   showEffect: true, threshold: 128, cellSize: 2, steps: 1,
-//   neighborhoodType: "Classic",
-//   surviveLowerBound: 1, surviveUpperBound: 8,
-//   birthLowerBound:   3, birthUpperBound:   3,
-//   ltlSurviveLower:  47, ltlSurviveUpper:  102,
-//   ltlBirthLower:    15, ltlBirthUpper:    91,
-//   mncaThreshold1:  0.35, mncaThreshold2:  0.70,
-//   mnccThreshold1Lower: 0.262, mnccThreshold1Upper: 0.903,
-//   mnccThreshold2Lower: 0.342, mnccThreshold2Upper: 0.378,
-//   mnccThreshold3Lower: 0.342, mnccThreshold3Upper: 0.382,
-//   mnccThreshold4Lower: 0.889, mnccThreshold4Upper: 0.978,
-//   + preprocessor inheritance (canvasSize 600, blur 0, grain 0, gamma 1,
-//   blackPoint 0, whitePoint 255).
+// Step 2 (pattern-set): animation + interactive cursor layered on top, matching
+// the bevel pattern (applyMode / applyInteractive / renderAt / WAEffect.cycleMs).
 //
-// Loop-closure: the CA is a pure function of (preprocessed source, params).
-// It's NOT a continuously-evolving simulation across frames — each frame
-// reseeds from the source and runs N generations. For the 15s breathing
-// loop we animate `steps` on a cosine pingpong (base → base+sweep → base)
-// so the endpoints meet identically. renderAt(0) === renderAt(1) byte-equal.
+// Defaults — swept against portrait.jpg in the browser:
+//   threshold=128 cellSize=3 steps=2 whitePoint=255
+// At those values the portrait reads clearly through the CA pattern, and the
+// CA texture (granular black-and-white cell mosaic) is unmistakable. Lower
+// `steps` shows the raw threshold poster; higher `steps` dissolves the face.
 //
-// Determinism: no RNG in the CA itself; only the preprocessor's grain stage
-// uses RNG, and that's mulberry32(seedFromT(tLoop)) — same scheme as edge.
+// Animation modes (each = 15 s loop; envelopes oscillate around USER values
+// so moving sliders while animate is on keeps working):
+//
+//   evolve  — steps slowly ramps 0 → base+sweep → 0. CA naturally evolves
+//             across generations. Endpoints meet (cosine envelope).
+//   tone    — whitePoint drifts 255 ↔ 130 (cosine). Shifts what the seeder
+//             reads as alive: brighter highlights flip on and off.
+//   bloom   — threshold pingpongs 90 ↔ 165 around base=128. Cells emerge
+//             from the dark regions and recede.
+//
+// Interactive: cursor X → threshold (50..200), cursor Y → cellSize (2..10).
+// Metaphor: the cursor IS the seed lens — left/right changes what counts as
+// alive, up/down changes the cell grain.
 'use strict';
 
 const CYCLE_MS = 15000;
@@ -70,11 +53,10 @@ const params = {
   gamma:             1,
   blackPoint:        0,
   whitePoint:        255,
-  // CA — bundle-shipped defaults (cellSize/steps lifted slightly so the
-  // first paint reads as "obviously a CA pass" on a 1280×720 canvas).
+  // CA core
   threshold:         128,
-  cellSize:          3,    // bundle ships 2
-  steps:             2,    // bundle ships 1
+  cellSize:          3,
+  steps:             2,
   neighborhoodType:  'Classic',
   surviveLowerBound: 1,
   surviveUpperBound: 8,
@@ -90,6 +72,10 @@ const params = {
   mnccThreshold2Lower: 0.342, mnccThreshold2Upper: 0.378,
   mnccThreshold3Lower: 0.342, mnccThreshold3Upper: 0.382,
   mnccThreshold4Lower: 0.889, mnccThreshold4Upper: 0.978,
+  // Step 2 controls
+  animate:           false,
+  mode:              'evolve',
+  interactive:       false,
   // Paint
   showEffect:        true,
   // Shared chrome
@@ -101,34 +87,15 @@ const DEAD_COLOR  = '#ffffff';
 if(window.PIXState) window.PIXState.hydrate(params);
 
 let gui;
-let animationId = null;
-let animationStartTime = 0;
 let preprocessed = null;
-let lumGrid = null;         // Float32Array of preprocessed luminance
-let grid = null;            // Uint8Array of cell state (alive=1, dead=0)
-let gridB = null;           // Back buffer for double-buffered stepping
+let lumGrid = null;
+let grid = null;
+let gridB = null;
 let gridW = 0, gridH = 0;
 let dirty = { pre: true, build: true, paint: true };
 let rafQueued = false;
 
-// ---------- helpers ----------
 function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
-
-let _rng = Math.random;
-function mulberry32(seed){
-  let a = seed >>> 0;
-  return function(){
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function seedFromT(t01){
-  const w = ((t01 % 1) + 1) % 1;
-  return Math.floor(w * 100003) + 1;
-}
 
 function schedule(level){
   if(level === 'pre') dirty.pre = true;
@@ -152,7 +119,7 @@ function fitCanvas(){
   if(cv.height !== h) cv.height = h;
 }
 
-// ---------- preprocessor (canonical pixart stack) ----------
+// ---------- preprocessor ----------
 function preprocess(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
@@ -187,7 +154,6 @@ function preprocess(){
   const wp = params.whitePoint;
   const span = Math.max(1, wp - bp);
   const scale = 255 / span;
-  const rnd = _rng;
   const doGrain  = g !== 0;
   const doGamma  = gm !== 1;
   const doLevels = bp !== 0 || wp !== 255;
@@ -199,7 +165,7 @@ function preprocess(){
   for(let i = 0; i < px.length; i += 4){
     let r = px[i], gg = px[i+1], b = px[i+2];
     if(doGrain){
-      const n = (0.5 - rnd()) * g * 255;
+      const n = (0.5 - Math.random()) * g * 255;
       r  = clamp(r  + n, 0, 255);
       gg = clamp(gg + n, 0, 255);
       b  = clamp(b  + n, 0, 255);
@@ -219,8 +185,6 @@ function preprocess(){
   sctx.putImageData(id, 0, 0);
   preprocessed = id;
 
-  // Bundle uses unweighted (R+G+B)/3 (NOT the alpha-composited luminance
-  // Displace/Edge use). Keep parity here for visual fidelity.
   const N = W * H;
   if(!lumGrid || lumGrid.length !== N) lumGrid = new Float32Array(N);
   for(let i = 0, j = 0; i < px.length; i += 4, j++){
@@ -228,15 +192,7 @@ function preprocess(){
   }
 }
 
-// ---------- seed cell grid from preprocessed luminance ----------
-// Mirrors bundle's `seedGrid`: for each cell (cy, cx), scan its
-// `cellSize × cellSize` source block; if ANY pixel has lum <= threshold,
-// the cell is alive. Dark-leaning — image's dark regions seed life.
-//
-// Refinement: `drift` mode shifts the sample point with a deterministic 2D
-// pseudo-Perlin field of (t); `magnetic` interactive adds a 1/r pull toward
-// the cursor. Both are vector-field warps applied at seed time, so the CA
-// rules themselves stay untouched — only the seed pattern moves.
+// ---------- seed grid ----------
 function seedGrid(){
   if(!preprocessed){ gridW = gridH = 0; return; }
   const W = preprocessed.width, H = preprocessed.height;
@@ -268,13 +224,7 @@ function seedGrid(){
   }
 }
 
-// Classic Moore-3×3 totalistic (8 neighbours, toroidal).
-//
-// Chirality (Refinement, 2026-05-13): biases the totalistic count toward
-// either cardinals (N/S/E/W) or diagonals. We compute the integer count
-// `n` exactly as before so the rule-bounds keep their meaning, then add a
-// fractional bias and round. Floors clamp to [0,8] so birth/survive bands
-// behave. Default chirality=0 → bit-equal to the bundle's behaviour.
+// ---------- CA rules ----------
 function classicStep(src, dst){
   const w = gridW, h = gridH;
   const sL = params.surviveLowerBound, sU = params.surviveUpperBound;
@@ -284,10 +234,9 @@ function classicStep(src, dst){
     const rU = yU * w, rC = y * w, rD = yD * w;
     for(let x = 0; x < w; x++){
       const xL = (x - 1 + w) % w, xR = (x + 1) % w;
-      const nUL = src[rU + xL], nU = src[rU + x], nUR = src[rU + xR];
-      const nL  = src[rC + xL],                   nR  = src[rC + xR];
-      const nDL = src[rD + xL], nD = src[rD + x], nDR = src[rD + xR];
-      let n = nUL + nU + nUR + nL + nR + nDL + nD + nDR;
+      const n = src[rU+xL]+src[rU+x]+src[rU+xR]
+              + src[rC+xL]+           src[rC+xR]
+              + src[rD+xL]+src[rD+x]+src[rD+xR];
       const alive = src[rC + x];
       dst[rC + x] = alive
         ? (n >= sL && n <= sU ? 1 : 0)
@@ -296,7 +245,6 @@ function classicStep(src, dst){
   }
 }
 
-// LTL — 11×11 Moore (radius 5). Naive O(w·h·121); fine for our grids.
 function ltlStep(src, dst){
   const w = gridW, h = gridH;
   const sL = params.ltlSurviveLower, sU = params.ltlSurviveUpper;
@@ -322,8 +270,6 @@ function ltlStep(src, dst){
   }
 }
 
-// Ring mean at radius r — bundle's helper `h()`: mean over the (2r+1)² block
-// minus centre. Denominator = (2r+1)² − 1.
 function ringMean(src, x, y, r){
   const w = gridW, h = gridH;
   let sum = 0, cnt = 0;
@@ -340,7 +286,6 @@ function ringMean(src, x, y, r){
   return cnt ? sum / cnt : 0;
 }
 
-// MNCAB — alive iff radius-1 mean OR radius-2 mean lies in [t1..t2].
 function mncabStep(src, dst){
   const w = gridW, h = gridH;
   const t1 = params.mncaThreshold1, t2 = params.mncaThreshold2;
@@ -355,19 +300,13 @@ function mncabStep(src, dst){
   }
 }
 
-// MNCC — chained parity flips from rings 1..4.
 function mnccStep(src, dst){
   const w = gridW, h = gridH;
   const lows  = [params.mnccThreshold1Lower, params.mnccThreshold2Lower, params.mnccThreshold3Lower, params.mnccThreshold4Lower];
   const highs = [params.mnccThreshold1Upper, params.mnccThreshold2Upper, params.mnccThreshold3Upper, params.mnccThreshold4Upper];
   for(let y = 0; y < h; y++){
     for(let x = 0; x < w; x++){
-      const m = [
-        ringMean(src, x, y, 1),
-        ringMean(src, x, y, 2),
-        ringMean(src, x, y, 3),
-        ringMean(src, x, y, 4),
-      ];
+      const m = [ringMean(src,x,y,1), ringMean(src,x,y,2), ringMean(src,x,y,3), ringMean(src,x,y,4)];
       let s = src[y * w + x];
       for(let k = 0; k < 4; k++){
         if(m[k] >= lows[k] && m[k] <= highs[k]) s = 1 - s;
@@ -416,7 +355,6 @@ function paint(){
 
   if(!grid || gridW === 0){ ctx.restore(); return; }
 
-  // Fit grid into canvas with `contain` so cells stay square.
   const sw = preprocessed.width, sh = preprocessed.height;
   const aspect = sw / sh;
   let dw, dh;
@@ -426,11 +364,9 @@ function paint(){
   const cw = dw / gridW;
   const ch = dh / gridH;
 
-  // Dead background tile (bundle: white).
   ctx.fillStyle = DEAD_COLOR;
   ctx.fillRect(ox, oy, dw, dh);
 
-  // Alive cells (bundle: black, rect(x, y, cw+1, ch+1) — +1 hides seams).
   ctx.fillStyle = ALIVE_COLOR;
   const cwR = Math.ceil(cw) + 1;
   const chR = Math.ceil(ch) + 1;
@@ -444,17 +380,106 @@ function paint(){
       }
     }
   }
-
   ctx.restore();
 }
 
+// ---------- animation + interactive ----------
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
 
-// ---------- WAEffect contract (static, Pass 2B) ----------
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'evolve'){
+    // steps cosine 0 → base+4 → 0. Floor to int so the CA actually re-runs
+    // generations. Endpoints (t=0,1) both produce steps=base (well, =0 here
+    // since pingPong(0)=pingPong(1)=0), so the loop closes byte-equal.
+    const base = params.steps;
+    const peak = 6; // base+4 from the swept-safe band 0..5 plus a touch
+    params.steps = Math.round(pingPong(t01) * peak);
+    return () => { params.steps = base; };
+  }
+  if(mode === 'tone'){
+    // whitePoint 130..255. Mid (t=0,1) = 255 (default), peak (t=0.5) = 130.
+    const base = params.whitePoint;
+    params.whitePoint = 255 - 125 * pingPong(t01);
+    return () => { params.whitePoint = base; };
+  }
+  if(mode === 'bloom'){
+    // threshold 90 ↔ 165 around base=128. Cosine pingpong → endpoints meet.
+    const base = params.threshold;
+    params.threshold = 128 + 37 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.threshold = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseTh = params.threshold;
+  const baseCs = params.cellSize;
+  params.threshold = 50 + ax * 150;        // 50..200
+  params.cellSize  = Math.round(2 + ay * 8); // 2..10
+  return () => { params.threshold = baseTh; params.cellSize = baseCs; };
+}
+
+// Track if last frame baked tone-modulated whitePoint into preprocessed buffer.
+let preprocessedIsToneModulated = false;
+function renderAt(t01){
+  // tone modulates whitePoint (a preprocessor key) → re-run preprocess.
+  // Interactive cellSize also affects seedGrid sizing (handled in build).
+  const isTone = params.animate && params.mode === 'tone';
+  const needsPre = isTone || preprocessedIsToneModulated;
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  if(needsPre) preprocess();
+  buildGrid();
+  paint();
+  restoreInt();
+  restoreMode();
+  preprocessedIsToneModulated = isTone;
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
+// ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(){ paint(); return cv; },
-  pauseRender(){},
-  resumeRender(){ paint(); return cv; },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const PRE_KEYS   = new Set(['canvasSize','blurAmount','grainAmount','gamma','blackPoint','whitePoint','fit','bg']);
@@ -473,17 +498,33 @@ const PAINT_KEYS = new Set(['showEffect']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
+    if(key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('pre'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(PRE_KEYS.has(key))        schedule('pre');
     else if(BUILD_KEYS.has(key)) schedule('build');
     else                         schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
-    window.PIXSource.onChange(() => { schedule('pre'); });
+    window.PIXSource.onChange(() => schedule('pre'));
   }
   if(window.WAExport){
     window.WAExport.wire({
@@ -496,6 +537,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('pre');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);

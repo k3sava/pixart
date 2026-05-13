@@ -12,7 +12,26 @@
 //   4. Grain                — deterministic mulberry32 luminance noise.
 //   5. Vignette             — radial darkening (quadratic falloff).
 //
-// Deterministic: one fixed-seed noise pattern, no animation, no per-frame state.
+// Step 2 (pattern-set): animation + interactive cursor layered on top.
+//
+// Defaults were chosen by sweeping each control alone against `portrait.jpg` in
+// Playwright. Sweet spot for "shot on film AND portrait stays recognizable":
+//
+//   filmStock=portra-400 — neutral cinematic skin tones.
+//   grainAmount=0.3      — visible grain texture, face still reads.
+//   halation=0.4         — gentle red bleed in highlights without melting.
+//   vignette=0.3         — corners gently darken; subject pops.
+//   temperature=0        — neutral; mode shifts it.
+//
+// Animation modes (each = a gentle cosine envelope across cycleMs=15000):
+//
+//   breath — grainAmount pingpongs 0.05 ↔ 0.6 (grain density swells/fades).
+//   tone   — temperature drifts -0.6 ↔ +0.6 (cool ↔ warm; dusk-to-dawn feel).
+//   bloom  — halation pingpongs 0.1 ↔ 0.85 (highlights bloom and recede).
+//
+// Interactive: cursor X drives halation (0..1, left=clean, right=glowing),
+// cursor Y drives grainAmount (0..1, top=fine, bottom=heavy texture).
+// Cursor IS the projector lens — bloom across, grain down.
 'use strict';
 
 const cv  = document.getElementById('cv');
@@ -41,6 +60,10 @@ const params = {
   temperature:     0,
   // Bypass effect entirely (pass-through source).
   showEffect:      true,
+  // Animation + interactive.
+  animate:         false,
+  mode:            'breath',
+  interactive:     false,
   // Shared chrome.
   fit:             'cover',
   bg:              '#0a0a0a',
@@ -331,12 +354,90 @@ function paint(){
   ctx.restore();
 }
 
+// ---------- animation ----------
+const CYCLE_MS = 15000;
+let animationId = null;
+let animationStartTime = 0;
+let mouseX = 0, mouseY = 0, hasMouse = false;
+
+function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
+
+function applyMode(t01){
+  const mode = params.mode;
+  if(mode === 'breath'){
+    const base = params.grainAmount;
+    params.grainAmount = 0.05 + 0.55 * pingPong(t01);
+    return () => { params.grainAmount = base; };
+  }
+  if(mode === 'tone'){
+    const base = params.temperature;
+    params.temperature = 0.6 * Math.cos(t01 * Math.PI * 2);
+    return () => { params.temperature = base; };
+  }
+  if(mode === 'bloom'){
+    const base = params.halation;
+    params.halation = 0.1 + 0.75 * pingPong(t01);
+    return () => { params.halation = base; };
+  }
+  return () => {};
+}
+
+function applyInteractive(){
+  if(!params.interactive || !hasMouse) return () => {};
+  const r = cv.getBoundingClientRect();
+  const ax = clamp(mouseX / r.width,  0, 1);
+  const ay = clamp(mouseY / r.height, 0, 1);
+  const baseH = params.halation;
+  const baseG = params.grainAmount;
+  params.halation    = ax;
+  params.grainAmount = ay;
+  return () => { params.halation = baseH; params.grainAmount = baseG; };
+}
+
+function renderAt(t01){
+  const restoreMode = params.animate ? applyMode(t01) : () => {};
+  const restoreInt  = applyInteractive();
+  paint();
+  restoreInt();
+  restoreMode();
+}
+
+function animationLoop(){
+  if(!params.animate){ animationId = null; return; }
+  const elapsed = performance.now() - animationStartTime;
+  renderAt((elapsed % CYCLE_MS) / CYCLE_MS);
+  animationId = requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(){
+  if(animationId) return;
+  animationStartTime = performance.now();
+  animationLoop();
+}
+function stopAnimation(){
+  if(animationId){ cancelAnimationFrame(animationId); animationId = null; }
+}
+
+function handleMouseMove(e){
+  const r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  hasMouse = true;
+  if(params.interactive && !params.animate){
+    renderAt(0);
+  }
+}
+
 // ---------- WAEffect contract ----------
 window.WAEffect = {
-  cycleMs: 0,
-  renderAt(){ paint(); },
-  pauseRender(){},
-  resumeRender(){ paint(); },
+  cycleMs: CYCLE_MS,
+  renderAt(t){ renderAt(t || 0); return cv; },
+  pauseRender(){ stopAnimation(); },
+  resumeRender(){
+    if(params.animate) startAnimation();
+    else { paint(); }
+    return cv;
+  },
 };
 
 const RESAMPLE_KEYS = new Set(['canvasSize','fit']);
@@ -344,14 +445,26 @@ const RESAMPLE_KEYS = new Set(['canvasSize','fit']);
 function init(){
   gui = new WAGui(document.getElementById('panel'), params);
   gui.on((key) => {
+    if(key === 'animate'){
+      if(params.animate) startAnimation();
+      else { stopAnimation(); schedule('paint'); }
+      return;
+    }
+    if(key === 'mode' || key === 'interactive'){
+      if(!params.animate) schedule('paint');
+      return;
+    }
     if(key === 'fit' || key === 'bg'){
       window.PIXSource?.setParam(key, params[key]);
       if(key === 'fit') schedule('resample'); else schedule('paint');
       return;
     }
+    if(params.animate) return;
     if(RESAMPLE_KEYS.has(key)) schedule('resample');
     else schedule('paint');
   });
+  cv.addEventListener('mousemove', handleMouseMove);
+  cv.addEventListener('mouseleave', () => { hasMouse = false; if(!params.animate) schedule('paint'); });
   if(window.PIXSource){
     window.PIXSource.onChange(() => schedule('resample'));
   }
@@ -366,6 +479,7 @@ function init(){
   window.addEventListener('resize', () => { fitCanvas(); schedule('paint'); });
   fitCanvas();
   schedule('resample');
+  if(params.animate) startAnimation();
 }
 
 document.addEventListener('DOMContentLoaded', init);
