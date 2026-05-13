@@ -45,7 +45,7 @@
 <aside class="wg" id="panel">
   <div class="wg-title" role="button" tabindex="0">Controls</div>
   <div class="wg-body">
-    <!-- Shared source picker (image / video) — every effect shares these. -->
+    <!-- Source picker (pixart's "Upload image" equivalent). -->
     <div class="wg-row wg-file" data-key="source" data-handler="pix-source">
       <div class="wg-name">Source</div>
       <div class="wg-widget">
@@ -54,16 +54,6 @@
         <button type="button" class="wg-shuffle" title="Cycle bundled sample">↻</button>
         <input type="file" accept="image/*,video/*">
       </div>
-    </div>
-    <div class="wg-row wg-select" data-key="fit">
-      <div class="wg-name">Fit</div>
-      <div class="wg-widget">
-        <select><option value="cover">cover</option><option value="contain">contain</option></select>
-      </div>
-    </div>
-    <div class="wg-row wg-color" data-key="bg">
-      <div class="wg-name">Background</div>
-      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
     <!-- Distortion map upload — drives the warp via its red channel. -->
     <div class="wg-row wg-file" data-key="distortionMap">
@@ -74,41 +64,23 @@
         <input type="file" accept="image/*">
       </div>
     </div>
-    <!-- Reference distort controls — ranges and steps taken byte-for-byte from the bundle. -->
-    <div class="wg-row wg-slider" data-key="canvasSize"             data-min="100" data-max="1000" data-step="10"><div class="wg-name">Canvas size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="blurAmount"             data-min="0"   data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="grainAmount"            data-min="0"   data-max="1"    data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="gamma"                  data-min="0.1" data-max="2"    data-step="0.1"><div class="wg-name">Gamma</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="blackPoint"             data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Black point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="whitePoint"             data-min="0"   data-max="255"  data-step="1"><div class="wg-name">White point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <!-- Ranges + defaults verified against the live tooooools panel 2026-05-13. -->
+    <div class="wg-row wg-slider" data-key="canvasSize"             data-min="100"  data-max="1000" data-step="1"><div class="wg-name">Canvas size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="blurAmount"             data-min="0"    data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="grainAmount"            data-min="0"    data-max="1"    data-step="0.01"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="gamma"                  data-min="0.1"  data-max="2"    data-step="0.1"><div class="wg-name">Gamma</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="blackPoint"             data-min="0"    data-max="255"  data-step="1"><div class="wg-name">Black point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="whitePoint"             data-min="0"    data-max="255"  data-step="1"><div class="wg-name">White point</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-select" data-key="preprocessTarget">
       <div class="wg-name">Preprocess</div>
       <div class="wg-widget">
         <select><option value="distortion">distortion</option><option value="base">base</option></select>
       </div>
     </div>
-    <div class="wg-row wg-slider" data-key="displacementThreshold"  data-min="0"    data-max="255" data-step="1"><div class="wg-name">Threshold</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="xDisplacementStrength"  data-min="-100" data-max="100" data-step="1"><div class="wg-name">X shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="yDisplacementStrength"  data-min="-100" data-max="100" data-step="1"><div class="wg-name">Y shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="harmonic"               data-min="0"    data-max="1"   data-step="0.05"><div class="wg-name">Harmonic</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="phaseOffset"            data-min="-3.14159" data-max="3.14159" data-step="0.05"><div class="wg-name">Phase offset</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="focusRadius"            data-min="40"   data-max="600" data-step="10"><div class="wg-name">Focus radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-select" data-key="mode">
-      <div class="wg-name">Mode</div>
-      <div class="wg-widget">
-        <select>
-          <option value="idle">idle</option>
-          <option value="breath">breath</option>
-          <option value="rotate">rotate</option>
-          <option value="pulse">pulse</option>
-          <option value="march">march</option>
-          <option value="harmonic">harmonic</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool" data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool" data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-slider" data-key="displacementThreshold"  data-min="0"    data-max="255"  data-step="1"><div class="wg-name">Threshold</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="xDisplacementStrength"  data-min="-100" data-max="100"  data-step="1"><div class="wg-name">X shift strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="yDisplacementStrength"  data-min="-100" data-max="100"  data-step="1"><div class="wg-name">Y shift strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
   </div>
 </aside>
 
