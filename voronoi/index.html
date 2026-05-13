@@ -64,9 +64,9 @@
       <div class="wg-name">Background</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
-    <div class="wg-row wg-slider" data-key="seedCount" data-min="16" data-max="1000" data-step="1"><div class="wg-name">Seed count</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="seedCount" data-min="16" data-max="1000" data-step="1"><div class="wg-name">Cell count</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-select" data-key="seedSource">
-      <div class="wg-name">Seed source</div>
+      <div class="wg-name">Cell placement</div>
       <div class="wg-widget">
         <select>
           <option value="poisson">poisson</option>
@@ -77,7 +77,7 @@
       </div>
     </div>
     <div class="wg-row wg-select" data-key="metric">
-      <div class="wg-name">Metric</div>
+      <div class="wg-name">Distance</div>
       <div class="wg-widget">
         <select>
           <option value="euclidean">euclidean</option>
@@ -87,11 +87,11 @@
         </select>
       </div>
     </div>
-    <div class="wg-row wg-slider" data-key="relax" data-min="0" data-max="6" data-step="1"><div class="wg-name">Relax</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="relax" data-min="0" data-max="6" data-step="1"><div class="wg-name">Settle</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-slider" data-key="borderWidth" data-min="0" data-max="3" data-step="0.1"><div class="wg-name">Border width</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-color" data-key="borderColor"><div class="wg-name">Border color</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+    <div class="wg-row wg-color" data-key="borderColor"><div class="wg-name">Border colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
     <div class="wg-row wg-select" data-key="colorMode">
-      <div class="wg-name">Color mode</div>
+      <div class="wg-name">Colour mode</div>
       <div class="wg-widget">
         <select>
           <option value="sample">sample</option>
@@ -100,10 +100,10 @@
         </select>
       </div>
     </div>
-    <div class="wg-row wg-slider" data-key="paletteShift" data-min="0" data-max="360" data-step="5"><div class="wg-name">Palette shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="paletteShift" data-min="0" data-max="360" data-step="5"><div class="wg-name">Hue shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="hue">hue</option><option value="tone">tone</option></select></div></div>
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Interactive</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
   </div>
 </aside>

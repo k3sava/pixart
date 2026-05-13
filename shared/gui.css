@@ -3,11 +3,12 @@
    legibility. Canvas text rendering is independent (set inside each effect.js). */
 .wg{
   position:fixed; top:54px; right:8px; width:304px;
-  /* Reserve room for the top bar (54px) and footer (~46px). When an effect
-     ships more controls than fit, .wg-body becomes scrollable rather than
-     letting rows bleed off the viewport. The flex column keeps the title
-     sticky at the top of the panel. */
-  max-height:calc(100dvh - 54px - 56px);
+  /* Always-full-height panel: reaches from below the top bar (54px) to
+     just above the footer (~56px). Consistent on every effect regardless
+     of how many control rows it ships. When content overflows the body
+     scrolls; when it doesn't, the empty space sits at the bottom of the
+     body so the title stays in the same place. */
+  height:calc(100dvh - 54px - 56px);
   display:flex; flex-direction:column;
   background:var(--panel-bg); border:1px solid var(--panel-border);
   color:var(--panel-text);
@@ -60,14 +61,34 @@
   flex:1 1 auto;
   overflow-y:auto;
   -webkit-overflow-scrolling:touch;
-  /* Thin scrollbar — present but visually quiet */
-  scrollbar-width:thin;
-  scrollbar-color:var(--panel-border) transparent;
+  position:relative;
+  /* Always-on visible scrollbar so users know when more controls exist
+     below the fold. */
+  scrollbar-width:auto;
+  scrollbar-color:var(--text) transparent;
 }
-.wg-body::-webkit-scrollbar{ width:6px; }
+.wg-body::-webkit-scrollbar{ width:8px; }
 .wg-body::-webkit-scrollbar-track{ background:transparent; }
-.wg-body::-webkit-scrollbar-thumb{ background:var(--panel-border); border-radius:3px; }
-.wg-body::-webkit-scrollbar-thumb:hover{ background:var(--text); }
+.wg-body::-webkit-scrollbar-thumb{
+  background:var(--panel-border);
+  border-radius:4px;
+  border:1px solid transparent;
+  background-clip:content-box;
+}
+.wg-body::-webkit-scrollbar-thumb:hover{ background:var(--text); background-clip:content-box; }
+/* Bottom fade hint when there's more content scrolled out of view.
+   Sits inside the panel via a pseudo element on .wg. */
+.wg::after{
+  content:"";
+  position:absolute;
+  left:0; right:8px; bottom:0;
+  height:24px;
+  pointer-events:none;
+  background:linear-gradient(to top, var(--panel-bg) 0%, transparent 100%);
+  opacity:.85;
+  border-radius:0 0 4px 4px;
+}
+.wg.collapsed::after{ display:none; }
 .wg.is-collapsed .wg-body{ display:none; }
 
 .wg-row{ display:grid; grid-template-columns:46% 54%; align-items:center; padding:4px 12px; min-height:24px; }
