@@ -19,9 +19,11 @@
 //
 // Animation modes (each = a gentle cosine envelope across cycleMs=15000):
 //
-//   swell  — displacement = base * cos(2π t). Pingpongs default ↔ 0 ↔ -default
-//            ↔ 0 ↔ default. Dots "breathe" up and down through the resting
-//            portrait position.
+//   swell  — luminance-driven offset rotates 360° across the loop. Each dot
+//            orbits its rest position by `displacement * (lum/255)` along
+//            (cos θ, sin θ), θ = 2π t. At t=0 dots are pushed right, t=¼ down,
+//            t=½ left, t=¾ up — closes seamlessly. Restores the historical
+//            yaw-rotation read instead of vertical pingpong.
 //   tone   — whitePoint drifts 130 ↔ 255 (centre 192, amp 62). Levels-driven
 //            contrast pulses; the dot field brightens and dims.
 //   breath — dotSize pingpongs between 4 and 16 (centre 10, amp 6). Dots
@@ -185,6 +187,9 @@ function paint(){
 
   const ds = Math.max(1, params.dotSize * fitScale * 0.5);
   const useRects = params.dotSize * fitScale < 5;
+  const orbit = _swirlAngle !== null;
+  const oc = orbit ? Math.cos(_swirlAngle) : 0;
+  const os = orbit ? Math.sin(_swirlAngle) : 1; // vertical when no orbit
 
   for(let y = 0; y < sh; y += stride){
     for(let x = 0; x < sw; x += stride){
@@ -195,9 +200,11 @@ function paint(){
       const lg = 255 + (g - 255) * a;
       const lb = 255 + (b - 255) * a;
       const lum = (lr + lg + lb) / 3;
-      const dy = disp * (lum / 255);
-      const sx = ox + x * fitScale;
-      const sy = oy + (y + dy) * fitScale;
+      const mag = disp * (lum / 255);
+      const dxOff = mag * oc;
+      const dyOff = mag * os;
+      const sx = ox + (x + dxOff) * fitScale;
+      const sy = oy + (y + dyOff) * fitScale;
       ctx.fillStyle = 'rgb(' + (r|0) + ',' + (g|0) + ',' + (b|0) + ')';
       if(useRects){
         ctx.fillRect(sx - ds, sy - ds, ds * 2, ds * 2);
@@ -220,14 +227,19 @@ let mouseX = 0, mouseY = 0, hasMouse = false;
 
 function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
 
+// Swirl angle in radians. paint() reads this to add a (cos θ, sin θ) offset
+// scaled by per-dot luminance, producing a 360° orbital motion across the
+// loop. null = no orbit (idle / non-swell modes).
+let _swirlAngle = null;
+
 function applyMode(t01){
   const mode = params.mode;
   if(mode === 'swell'){
-    // displacement = base * cos(2π t). Sweeps base → 0 → -base → 0 → base.
-    // Dots breathe vertically through the resting portrait position.
-    const base = params.displacement;
-    params.displacement = base * Math.cos(t01 * Math.PI * 2);
-    return () => { params.displacement = base; };
+    // 360° orbit. Direction rotates across the loop; magnitude per dot stays
+    // `displacement * (lum/255)`. Closes seamlessly because cos/sin are 2π-
+    // periodic.
+    _swirlAngle = t01 * Math.PI * 2;
+    return () => { _swirlAngle = null; };
   }
   if(mode === 'tone'){
     // Drift whitePoint 130 ↔ 255 cosine. Touches preprocess so caller re-runs.

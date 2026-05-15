@@ -340,8 +340,10 @@
   const EFFECTS = [
     { slug:'ascii',          name:'ascii',          cat:'Type' },
     { slug:'bevel',          name:'bevel',          cat:'Tonal' },
+    { slug:'bloom',          name:'bloom',          cat:'Cinematic' },
     { slug:'cellular',       name:'cellular',       cat:'Generative' },
     { slug:'contour',        name:'contour',        cat:'Tonal' },
+    { slug:'crosshatch',     name:'crosshatch',     cat:'Painterly' },
     { slug:'crt',            name:'crt',            cat:'Cinematic' },
     { slug:'displace',       name:'displace',       cat:'Geometric' },
     { slug:'distort',        name:'distort',        cat:'Geometric' },
@@ -354,21 +356,19 @@
     { slug:'halftone-cmyk',  name:'halftone cmyk',  cat:'Halftone' },
     { slug:'ink-wash',       name:'ink wash',       cat:'Painterly' },
     { slug:'kaleidoscope',   name:'kaleidoscope',   cat:'Geometric' },
+    { slug:'mosaic',         name:'mosaic',         cat:'Geometric' },
     { slug:'patterns',       name:'patterns',       cat:'Generative' },
     { slug:'pixel-sort',     name:'pixel sort',     cat:'Glitch' },
     { slug:'recolor',        name:'recolor',        cat:'Tonal' },
     { slug:'rgb-shift',      name:'rgb shift',      cat:'Cinematic' },
     { slug:'scatter',        name:'scatter',        cat:'Glitch' },
-    { slug:'slide',          name:'slide',          cat:'Motion' },
     { slug:'slit-scan',      name:'slit-scan',      cat:'Glitch' },
-    { slug:'stack',          name:'stack',          cat:'Motion' },
     { slug:'stippling',      name:'stippling',      cat:'Halftone' },
     { slug:'voronoi',        name:'voronoi',        cat:'Geometric' },
     { slug:'watercolor',     name:'watercolor',     cat:'Painterly' },
-    { slug:'zoom-blur',      name:'zoom blur',      cat:'Cinematic' },
   ];
 
-  const CATEGORY_ORDER = ['Type','Tonal','Halftone','Geometric','Cinematic','Painterly','Glitch','Generative','Motion'];
+  const CATEGORY_ORDER = ['Type','Tonal','Halftone','Geometric','Cinematic','Painterly','Glitch','Generative'];
 
   const state = { q:'', cat:'All' };
 

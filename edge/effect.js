@@ -288,9 +288,12 @@ function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
 function applyMode(t01){
   const mode = params.mode;
   if(mode === 'breath'){
-    // maxDotSize 4 ↔ 20 — dots inhale at t=0.5, exhale at t=0,1.
+    // Scale maxDotSize between 30% and 100% of the slider value via pingPong.
+    // Previously hardcoded 4 ↔ 20, which overlapped dots into a solid black
+    // mass on heavily-textured sources at stepSize=5. Scaling the slider
+    // keeps the peak under the user's chosen density ceiling.
     const base = params.maxDotSize;
-    params.maxDotSize = 4 + 16 * pingPong(t01);
+    params.maxDotSize = base * (0.3 + 0.7 * pingPong(t01));
     return () => { params.maxDotSize = base; };
   }
   if(mode === 'tone'){

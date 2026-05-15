@@ -398,8 +398,11 @@ function pingPong(t){ return 0.5 - 0.5 * Math.cos(t * Math.PI * 2); }
 function applyMode(t01){
   const mode = params.mode;
   if(mode === 'breath'){
-    // 0.55 ↔ 1.35 of base maxPointSize, gentle pingpong.
-    paintOpts.sizeScale = 0.55 + 0.8 * pingPong(t01);
+    // Pingpong sizeScale 0.35 ↔ 1.0 of the user's base maxPointSize. The
+    // previous 1.35× peak overshot the slider and packed dots into a black
+    // mass on textured sources; capping at 1.0 keeps peak coverage at the
+    // user's chosen density ceiling.
+    paintOpts.sizeScale = 0.35 + 0.65 * pingPong(t01);
     return () => { paintOpts.sizeScale = 1; };
   }
   if(mode === 'tone'){

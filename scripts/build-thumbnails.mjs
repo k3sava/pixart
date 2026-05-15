@@ -20,11 +20,10 @@ const SHOTS = resolve(ROOT, 'docs/screenshots');
 const OUT = resolve(ROOT, 'assets/thumbs');
 
 const EFFECTS = [
-  'ascii','bevel','cellular','contour','crt','displace','distort','dithering',
-  'dots','edge','film-grain','flow-field','gradients','halftone-cmyk',
-  'ink-wash','kaleidoscope','patterns','pixel-sort','recolor','rgb-shift',
-  'scatter','slide','slit-scan','stack','stippling','voronoi','watercolor',
-  'zoom-blur',
+  'ascii','bevel','bloom','cellular','contour','crosshatch','crt','displace',
+  'distort','dithering','dots','edge','film-grain','flow-field','gradients',
+  'halftone-cmyk','ink-wash','kaleidoscope','mosaic','patterns','pixel-sort',
+  'recolor','rgb-shift','scatter','slit-scan','stippling','voronoi','watercolor',
 ];
 
 // Preference: <slug>.png > <slug>-breath.png > <slug>-bloom.png > first match.

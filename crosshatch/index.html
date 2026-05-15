@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kaleidoscope — pixart</title>
+<title>Crosshatch — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../ink-wash/" title="Previous effect (ink-wash)" aria-label="Previous">‹</a>
+    <a class="effect-nav-arrow" href="../contour/" title="Previous effect (contour)" aria-label="Previous">‹</a>
     <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
-      <span class="effect-nav-name">kaleidoscope</span>
+      <span class="effect-nav-name">crosshatch</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../mosaic/" title="Next effect (mosaic)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../crt/" title="Next effect (crt)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -53,29 +53,19 @@
         <input type="file" accept="image/*,video/*">
       </div>
     </div>
-    <div class="wg-row wg-select" data-key="fit">
-      <div class="wg-name">Fit</div>
-      <div class="wg-widget">
-        <select><option value="cover">cover</option><option value="contain">contain</option></select>
-      </div>
-    </div>
+    <div class="wg-row wg-select" data-key="fit"><div class="wg-name">Fit</div><div class="wg-widget"><select><option value="cover">cover</option><option value="contain">contain</option></select></div></div>
     <div class="wg-row wg-select" data-key="ratio"><div class="wg-name">Ratio</div><div class="wg-widget"><select><option value="square">1:1</option><option value="portrait">9:16</option><option value="landscape">16:9</option></select></div></div>
-    <div class="wg-row wg-color" data-key="bg">
-      <div class="wg-name">Background</div>
-      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
-    </div>
-    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="rotate">rotate</option><option value="breath">breath</option><option value="petals">petals</option></select></div></div>
+    <div class="wg-row wg-color"  data-key="bg"><div class="wg-name">Paper</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+    <div class="wg-row wg-color"  data-key="ink"><div class="wg-name">Ink</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="scribble">scribble</option><option value="tone">tone</option><option value="march">march</option></select></div></div>
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-slider" data-key="segments"    data-min="2" data-max="32" data-step="1"><div class="wg-name">Mirrors</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="angleOffset" data-min="-3.14159" data-max="3.14159" data-step="0.05"><div class="wg-name">Twist</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-bool"   data-key="mirror"><div class="wg-name">Flip alternate slices</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-slider" data-key="sampleX"     data-min="-1" data-max="1" data-step="0.02"><div class="wg-name">Centre X</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="sampleY"     data-min="-1" data-max="1" data-step="0.02"><div class="wg-name">Centre Y</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="zoom"        data-min="0.3" data-max="3" data-step="0.05"><div class="wg-name">Zoom</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-  
-    <!-- Animation modes — rendered as radio pills by the wg-select pill renderer. -->
+    <div class="wg-row wg-slider" data-key="layers"      data-min="1"  data-max="4"  data-step="1"><div class="wg-name">Layers</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="spacing"     data-min="4"  data-max="20" data-step="1"><div class="wg-name">Spacing</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="lineLength"  data-min="4"  data-max="30" data-step="1"><div class="wg-name">Stroke length</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="lineWidth"   data-min="0.5" data-max="3" data-step="0.1"><div class="wg-name">Stroke weight</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="ditherLevel" data-min="0"  data-max="1"  data-step="0.05"><div class="wg-name">Wobble</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox" checked></label></div>
   </div>
 </aside>
 
@@ -88,9 +78,7 @@
     <span class="current">toys</span><span class="sep">·</span>
     <span><a href="https://codex.iamkesava.com/">codex</a></span>
   </nav>
-  <div class="row made">
-    made by <a href="https://iamkesava.com" rel="author">kesava</a> <span class="sep">·</span> <a href="https://github.com/k3sava/pixart" rel="noopener">github</a>
-  </div>
+  <div class="row made">made by <a href="https://iamkesava.com" rel="author">kesava</a> <span class="sep">·</span> <a href="https://github.com/k3sava/pixart" rel="noopener">github</a></div>
 </footer>
 
 <script src="../shared/state.js" defer></script>

@@ -37,9 +37,9 @@
   // Bundled samples shipped with the site. Add more files to assets/samples/.
   // Each entry is a relative URL from any /pixart/<effect>/ page.
   const SAMPLES = [
-    '../assets/samples/portrait.jpg',
-    '../assets/samples/landscape.jpg',
     '../assets/samples/macro.jpg',
+    '../assets/samples/landscape.jpg',
+    '../assets/samples/portrait.jpg',
     '../assets/samples/cityscape.jpg',
     '../assets/samples/clip.mp4',
   ];
@@ -280,7 +280,7 @@
   paintPlaceholder();
   notify();
 
-  // Every fresh page load starts on portrait.jpg. The prior behaviour of
+  // Every fresh page load starts on macro.jpg (the tree). The prior behaviour of
   // resuming whatever `pix.sourceUrl` localStorage held meant each effect's
   // page could open with a different image, depending on which sample the
   // user last cycled to on each page — operator-visible drift. With the

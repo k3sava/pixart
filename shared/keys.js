@@ -5,24 +5,23 @@
   'use strict';
   // Source of truth — mirrored in pixart/index.html and scripts/sync-nav.py.
   const EFFECTS = [
-    'ascii','bevel','cellular','contour','crt',
-    'displace','distort','dithering','dots','edge',
-    'film-grain','flow-field','gradients','halftone-cmyk',
-    'ink-wash','kaleidoscope','patterns','pixel-sort',
-    'recolor','rgb-shift','scatter','slide','slit-scan',
-    'stack','stippling','voronoi','watercolor','zoom-blur',
+    'ascii','bevel','bloom','cellular','contour',
+    'crosshatch','crt','displace','distort','dithering',
+    'dots','edge','film-grain','flow-field','gradients',
+    'halftone-cmyk','ink-wash','kaleidoscope','mosaic','patterns',
+    'pixel-sort','recolor','rgb-shift','scatter','slit-scan',
+    'stippling','voronoi','watercolor',
   ];
   // Categories: same partition as the homepage chips.
   const CATEGORIES = [
     ['Type',       ['ascii']],
     ['Tonal',      ['bevel','contour','edge','gradients','recolor']],
     ['Halftone',   ['dithering','dots','halftone-cmyk','stippling']],
-    ['Geometric',  ['displace','distort','kaleidoscope','voronoi']],
-    ['Cinematic',  ['crt','film-grain','rgb-shift','zoom-blur']],
-    ['Painterly',  ['ink-wash','watercolor']],
+    ['Geometric',  ['displace','distort','kaleidoscope','mosaic','voronoi']],
+    ['Cinematic',  ['bloom','crt','film-grain','rgb-shift']],
+    ['Painterly',  ['crosshatch','ink-wash','watercolor']],
     ['Glitch',     ['pixel-sort','scatter','slit-scan']],
     ['Generative', ['cellular','flow-field','patterns']],
-    ['Motion',     ['slide','stack']],
   ];
   window.PIXART_EFFECTS = EFFECTS;
   window.PIXART_CATEGORIES = CATEGORIES;

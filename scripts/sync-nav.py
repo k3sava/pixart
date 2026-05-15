@@ -15,12 +15,12 @@ from pathlib import Path
 
 # 28 effects, alphabetised. Source of truth — mirrored in shared/keys.js.
 EFFECTS = [
-    "ascii", "bevel", "cellular", "contour", "crt",
-    "displace", "distort", "dithering", "dots", "edge",
-    "film-grain", "flow-field", "gradients", "halftone-cmyk",
-    "ink-wash", "kaleidoscope", "patterns", "pixel-sort",
-    "recolor", "rgb-shift", "scatter", "slide", "slit-scan",
-    "stack", "stippling", "voronoi", "watercolor", "zoom-blur",
+    "ascii", "bevel", "bloom", "cellular", "contour",
+    "crosshatch", "crt", "displace", "distort", "dithering",
+    "dots", "edge", "film-grain", "flow-field", "gradients",
+    "halftone-cmyk", "ink-wash", "kaleidoscope", "mosaic", "patterns",
+    "pixel-sort", "recolor", "rgb-shift", "scatter", "slit-scan",
+    "stippling", "voronoi", "watercolor",
 ]
 
 # Category groupings — also mirrored in shared/keys.js and index.html.
@@ -28,12 +28,11 @@ CATEGORIES = {
     "Type":       ["ascii"],
     "Tonal":      ["bevel", "edge", "gradients", "recolor", "contour"],
     "Halftone":   ["dots", "dithering", "stippling", "halftone-cmyk"],
-    "Geometric":  ["displace", "distort", "kaleidoscope", "voronoi"],
-    "Cinematic":  ["crt", "film-grain", "zoom-blur", "rgb-shift"],
-    "Painterly":  ["ink-wash", "watercolor"],
+    "Geometric":  ["displace", "distort", "kaleidoscope", "mosaic", "voronoi"],
+    "Cinematic":  ["bloom", "crt", "film-grain", "rgb-shift"],
+    "Painterly":  ["crosshatch", "ink-wash", "watercolor"],
     "Glitch":     ["pixel-sort", "slit-scan", "scatter"],
     "Generative": ["flow-field", "cellular", "patterns"],
-    "Motion":     ["slide", "stack"],
 }
 
 ROOT = Path(__file__).resolve().parent.parent

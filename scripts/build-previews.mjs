@@ -27,10 +27,10 @@ const OUT = resolve(ROOT, 'assets/previews');
 const BASE = process.env.PIXART_BASE || 'http://localhost:8001';
 
 const ALL_EFFECTS = [
-  'ascii','bevel','cellular','contour','crt','displace','distort','dithering',
-  'dots','edge','film-grain','flow-field','gradients','halftone-cmyk','ink-wash',
-  'kaleidoscope','patterns','pixel-sort','recolor','rgb-shift','scatter','slide',
-  'slit-scan','stack','stippling','voronoi','watercolor','zoom-blur',
+  'ascii','bevel','bloom','cellular','contour','crosshatch','crt','displace',
+  'distort','dithering','dots','edge','film-grain','flow-field','gradients',
+  'halftone-cmyk','ink-wash','kaleidoscope','mosaic','patterns','pixel-sort',
+  'recolor','rgb-shift','scatter','slit-scan','stippling','voronoi','watercolor',
 ];
 const onlyArg = process.argv.slice(2);
 const EFFECTS = onlyArg.length ? onlyArg : ALL_EFFECTS;
@@ -55,7 +55,17 @@ async function captureSlug(browser, slug) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.waitForFunction(() => !!window.PIXSource && !!window.WAEffect, { timeout: 10000 });
 
-    // PIXSource boots with portrait.jpg by default. Give it time to apply.
+    // Hide all chrome — header, controls panel, footer, splash — so the
+    // captured frames are pure canvas. Element.screenshot() crops to bounds,
+    // but overlapping absolute elements still composite on top.
+    await page.addStyleTag({ content: `
+      .wa-top, .wg, .wa-bottom, .wa-rec, #pix-splash, #pix-nav-overlay { display: none !important; }
+      body.wa-effect, .wa-stage { background: #000; }
+      .wa-stage { position: fixed; inset: 0; }
+      #cv { position: fixed; inset: 0; width: 100vw !important; height: 100vh !important; }
+    ` });
+
+    // PIXSource boots with the first SAMPLES entry. Give it time to apply.
     await page.waitForTimeout(700);
 
     // Toggle Animate ON so applyMode() actually runs inside renderAt(t).
