@@ -216,13 +216,19 @@
   .wg .wg-collapse::before{ content:"▴" }
   .wg.collapsed .wg-collapse::before{ content:"▾" }
 
-  /* .collapsed on mobile = OPEN state (slide up, contents visible) */
+  /* .collapsed on mobile = OPEN state (slide up, contents visible).
+     Reset the desktop-collapsed escape hatches (pointer-events:none,
+     max-height:none, overflow:visible) so the open sheet caps at 55dvh
+     and all controls receive touch. */
   .wg.collapsed{
     transform:translateY(0);
     background:var(--panel-bg);
     border:1px solid var(--panel-border);
     border-bottom:none;
     box-shadow:0 -6px 24px rgba(0,0,0,.18);
+    pointer-events:auto;
+    max-height:55dvh;
+    overflow:hidden;
   }
   .wg.collapsed > :not(.wg-collapse){ visibility:visible; }
 }
