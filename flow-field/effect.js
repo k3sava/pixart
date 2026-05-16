@@ -173,6 +173,7 @@ function sampleSource(sx, sy){
 
 // ─── paint ───────────────────────────────────────────────────
 function paint(){
+  window.WAGUI?.flashValues(params);
   const W = cv.width, H = cv.height;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);

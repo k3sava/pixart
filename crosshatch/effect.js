@@ -100,6 +100,7 @@ let _toneBias = 0;      // adds to luminance comparator (positive = darker → m
 let _marchOffset = 0;   // 0..1 fraction of spacing — offset along line normal
 
 function paint(){
+  window.WAGUI?.flashValues(params);
   const W = cv.width, H = cv.height;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);

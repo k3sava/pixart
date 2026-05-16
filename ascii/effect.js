@@ -146,6 +146,7 @@ function rampChar(lum, ramp){
 }
 
 function paint(){
+  window.WAGUI?.flashValues(params);
   if(!window.PIXSource) return;
   const w = cv.width, h = cv.height;
   ctx.save();

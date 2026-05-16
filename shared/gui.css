@@ -232,3 +232,18 @@
   }
   .wg.collapsed > :not(.wg-collapse){ visibility:visible; }
 }
+
+/* Inspiration credit, anchored to the bottom of the panel as a flex sibling
+   of .wg-body. position:relative + bg so it sits above the .wg::after fade. */
+.wg-credit{
+  flex:0 0 auto;
+  padding:8px 12px 10px;
+  font-family:var(--kami-font-mono); font-size:10px;
+  text-align:center; opacity:.6;
+  border-top:1px solid var(--panel-border);
+  background:var(--panel-bg);
+  letter-spacing:.04em;
+  position:relative; z-index:2;
+}
+.wg-credit a{ color:inherit; text-decoration:underline; text-underline-offset:2px; }
+.wg-credit a:hover{ opacity:.85; }

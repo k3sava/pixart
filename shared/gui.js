@@ -19,6 +19,10 @@
       this._initTitle();
       this._initCollapse();
       panelEl.querySelectorAll('.wg-row').forEach(r => this._bindRow(r));
+      // Expose globally so per-frame paint code in each effect can push
+      // animated/cursor values back into the sliders without firing change
+      // events (see flashValues). Only one panel exists per page.
+      window.WAGUI = this;
     }
     on(fn){ this.listeners.add(fn); return () => this.listeners.delete(fn); }
     emit(key){
@@ -36,6 +40,62 @@
       for(const [key, row] of this.rows){
         this._writeRow(row, this.params[key]);
       }
+    }
+    // Display-only update of the live params, called by per-effect paint() so
+    // sliders track values that the animation/cursor loop is modulating. No
+    // params write, no emit — just visual feedback.
+    flashValues(src){
+      const p = src || this.params;
+      for(const [key, row] of this.rows){
+        if(!(key in p)) continue;
+        if(row.classList.contains('wg-slider')) this._displaySlider(row, p[key]);
+        else if(row.classList.contains('wg-bool')) this._displayBool(row, p[key]);
+        else if(row.classList.contains('wg-select')) this._displaySelect(row, p[key]);
+        else if(row.classList.contains('wg-color')) this._displayColor(row, p[key]);
+        else if(row.classList.contains('wg-text')) this._displayText(row, p[key]);
+      }
+    }
+    _displaySlider(row, v){
+      const min = +row.dataset.min, max = +row.dataset.max, step = +row.dataset.step || 0;
+      if(v == null || Number.isNaN(+v)) return;
+      const cv = clamp(+v, min, max);
+      const pct = ((cv - min) / (max - min)) * 100;
+      const fill = row.querySelector('.wg-fill');
+      const track = row.querySelector('.wg-track');
+      const input = row.querySelector('input[type=number]');
+      if(fill) fill.style.width = pct + '%';
+      if(track) track.style.setProperty('--wg-knob-x', pct + '%');
+      if(input && document.activeElement !== input){
+        input.value = step >= 1 ? Math.round(cv) : (Math.round(cv*100)/100);
+      }
+    }
+    _displayBool(row, v){
+      const input = row.querySelector('input[type=checkbox]');
+      if(input) input.checked = !!v;
+    }
+    _displaySelect(row, v){
+      const select = row.querySelector('select');
+      if(select && document.activeElement !== select) select.value = String(v);
+      const pills = row.querySelectorAll('.wg-pill');
+      for(const p of pills){
+        const on = p.dataset.value === String(v);
+        p.classList.toggle('active', on);
+        p.setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+    }
+    _displayColor(row, v){
+      const swatch = row.querySelector('.wg-swatch');
+      const colorIn = row.querySelector('input[type=color]');
+      const textIn = row.querySelector('input[type=text]');
+      const hex = normaliseHex(v);
+      if(!hex) return;
+      if(swatch) swatch.style.background = hex;
+      if(colorIn) colorIn.value = hex;
+      if(textIn && document.activeElement !== textIn) textIn.value = hex.replace('#','');
+    }
+    _displayText(row, v){
+      const input = row.querySelector('input[type=text]');
+      if(input && document.activeElement !== input) input.value = String(v ?? '');
     }
     _initTitle(){
       // No-op. The title used to toggle a vertical collapse (.is-collapsed

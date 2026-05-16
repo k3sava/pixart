@@ -540,6 +540,7 @@ function fitCanvas(){
 // ---------- render pipeline ----------
 
 function render(){
+  window.WAGUI?.flashValues(params);
   if(!window.PIXSource?.isReady()) return;
   fitCanvas();
   const W = cv.width, H = cv.height;
