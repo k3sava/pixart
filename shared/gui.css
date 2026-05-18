@@ -129,73 +129,65 @@
 .wg-button button{ width:100%; padding:7px 0; background:var(--button-bg); border:1px solid var(--panel-border); color:var(--button-text); font-family:var(--kami-font-body); font-size:12px; cursor:pointer; border-radius:2px; letter-spacing:.02em; }
 .wg-button button:hover{ background:var(--button-bg-hover); color:var(--button-text-hover); }
 
+/* Mode bottom bar — hidden on desktop, fixed above footer on mobile */
+.wa-mode-bottom{ display:none; }
+
 /* ---------- MOBILE PANEL (<=640px) ----------
-   Convert the side panel into a slide-up bottom sheet, always open. */
+   Panel starts hidden, slides up when body.panel-open.
+   Animate/Cursor buttons live in .wa-mode-bottom above the footer. */
 @media (max-width:640px){
   .wg{
     top:auto;
     right:0;
     left:0;
-    bottom:42px; /* sit just above footer */
+    bottom:86px; /* above mode bar (44px) + footer (~42px) */
     width:100%;
     max-height:55dvh;
     border-radius:12px 12px 0 0;
     border-left:none; border-right:none; border-bottom:none;
     box-shadow:0 -6px 24px rgba(0,0,0,.18);
-    transition:none;
+    transition:transform .22s cubic-bezier(.2,0,0,1);
     display:flex; flex-direction:column;
+    transform:translateY(calc(100% + 1px)); /* hidden off-screen by default */
   }
-  .wg-title{
-    padding:10px 12px;
-    flex:0 0 auto;
+  body.panel-open .wg{
+    transform:translateY(0);
   }
-  .wg-body{
-    overflow-y:auto;
-    -webkit-overflow-scrolling:touch;
-    flex:1 1 auto;
-    padding-bottom:8px;
-  }
-  /* Larger touch targets inside rows */
+  .wg-title{ padding:10px 12px; flex:0 0 auto; }
+  .wg-body{ overflow-y:auto; -webkit-overflow-scrolling:touch; flex:1 1 auto; padding-bottom:8px; }
   .wg-row{ min-height:36px; padding:8px 12px; }
   .wg-track{ height:22px; }
-  /* Slightly larger toggle on mobile for touch targets */
   .wg input[type="checkbox"]{ width:40px; height:22px; }
   .wg input[type="checkbox"]::after{ width:18px; height:18px; top:1px; left:1px; }
   .wg input[type="checkbox"]:checked::after{ transform:translateX(18px); }
-}
 
-/* Mode bar — Animate / Cursor mutually-exclusive big toggles */
-.wg-mode-bar{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:6px;
-  padding:8px 12px;
-  flex:0 0 auto;
-  border-bottom:1px solid var(--panel-border);
-  background:var(--panel-bg);
-}
-.wg-mode-btn{
-  height:36px;
-  background:var(--input-bg);
-  border:1px solid var(--input-border);
-  color:var(--panel-text);
-  font-family:var(--kami-font-body);
-  font-size:11px;
-  font-weight:700;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  border-radius:3px;
-  cursor:pointer;
-  transition:background .12s, color .12s, border-color .12s;
-}
-.wg-mode-btn:hover{ border-color:var(--text); }
-.wg-mode-btn.active{
-  background:var(--accent);
-  color:var(--bg);
-  border-color:var(--accent);
-}
-@media (max-width:640px){
-  .wg-mode-btn{ height:44px; font-size:12px; }
+  /* Mode bottom bar */
+  .wa-mode-bottom{
+    position:fixed; left:0; right:0; bottom:42px;
+    height:44px;
+    display:flex;
+    z-index:49;
+    background:var(--bar-bg);
+    border-top:1px solid var(--bar-border);
+    -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+  }
+  .wa-mode-btn{
+    flex:1; height:100%;
+    border:none !important; border-radius:0 !important;
+    border-right:1px solid var(--bar-border) !important;
+    box-shadow:none !important; transform:none !important;
+    background:transparent; color:var(--text);
+    font-family:var(--kami-font-body); font-size:12px; font-weight:500;
+    letter-spacing:.04em; text-transform:uppercase;
+    cursor:pointer;
+    padding:0;
+    transition:background .15s, color .15s;
+  }
+  .wa-mode-btn:last-child{ border-right:none !important; }
+  .wa-mode-btn.active{ background:var(--accent); color:var(--bg); }
+  /* suppress terminal bracket pseudo-elements in the bottom bar */
+  .wa-mode-bottom .wa-mode-btn::before,
+  .wa-mode-bottom .wa-mode-btn::after{ display:none !important; }
 }
 
 /* Inspiration credit, anchored to the bottom of the panel as a flex sibling

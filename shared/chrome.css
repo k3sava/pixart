@@ -50,13 +50,15 @@ html,body{
 }
 body.wa-effect{ background:#000; }
 
-/* Stage: full-viewport canvas. On desktop, reserve 320px on the right for the
-   controls panel. Effects read cv.clientWidth, so this shrinks the draw area cleanly. */
+/* Stage: full-viewport canvas, between the two bars. On desktop, reserve
+   320px on the right for the controls panel so the wordmark rasterizes into
+   the visible region. Effects read cv.clientWidth, so this shrinks the draw
+   area cleanly. */
 .wa-stage{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;overflow:hidden;background:#000;z-index:0}
-/* Canvas is sized by shared/state.js applyRatio() to fit the selected ratio,
-   centered with letterboxing. Effects read cv.clientWidth/Height which now
-   honour the chosen ratio without any per-effect change. */
-.wa-stage canvas{display:block}
+/* Wordart effects read cv.clientWidth/Height and rely on the canvas filling
+   the stage. Force-stretch so each effect's fitCanvas() picks up the correct
+   pixel size regardless of intrinsic canvas defaults. */
+.wa-stage canvas{display:block;width:100% !important;height:100% !important}
 @media (min-width:641px){
   .wa-stage{ right:320px !important; }
 }
@@ -171,6 +173,7 @@ body.wa-effect{ background:#000; }
   border-radius:4px;
   overflow:hidden;
   flex:0 0 auto;
+  height:28px;
 }
 .effect-switcher .effect-nav-arrow{
   display:inline-flex; align-items:center; justify-content:center;
@@ -329,6 +332,25 @@ body.wa-effect{ background:#000; }
 }
 .wa-actions button:hover{ background:var(--text); color:var(--bg); border-color:var(--text) }
 .wa-actions button[disabled]{ opacity:.45; cursor:wait }
+/* ---------- MODE BUTTONS (Animate / Cursor) ----------
+   Live in .wa-actions header on desktop; in .wa-mode-bottom on mobile. */
+.wa-mode-btn{
+  font-family:var(--kami-font-body); font-size:12px;
+  background:transparent; color:var(--text);
+  border:1px solid var(--bar-border); border-radius:4px;
+  padding:4px 12px; cursor:pointer;
+  transition:background .15s, color .15s, border-color .15s;
+  letter-spacing:.02em;
+}
+.wa-mode-btn:hover{ background:var(--text); color:var(--bg); border-color:var(--text) }
+.wa-mode-btn.active{ background:var(--accent); color:var(--bg); border-color:var(--accent) }
+
+/* ---------- PANEL TOGGLE (desktop) ---------- */
+@media (min-width:641px){
+  body.panel-hidden .wg{ display:none; }
+  body.panel-hidden .wa-stage{ right:0 !important; }
+}
+
 /* Icon buttons (png / mp4 export) — SVG inside; centre and remove inline-block gaps. */
 .wa-actions button svg{ display:block; }
 .wa-actions button#export-png,
@@ -520,6 +542,42 @@ html[data-theme="brutalist"] .wg input[type="checkbox"]:checked::after{
 }
 html[data-theme="brutalist"] .wg{ border:2px solid #000; border-radius:0; box-shadow:6px 6px 0 #000 }
 
+/* Brutalist effect-switcher: one outer shadow, no per-arrow shadows */
+html[data-theme="brutalist"] .effect-switcher{
+  border:2px solid #000;
+  box-shadow:3px 3px 0 #000;
+}
+html[data-theme="brutalist"] .effect-switcher .effect-nav-arrow{
+  box-shadow:none; transform:none; background:#fff; color:#000;
+  border:none; border-right:2px solid #000;
+}
+html[data-theme="brutalist"] .effect-switcher .effect-nav-arrow:last-child{
+  border-right:none; border-left:2px solid #000;
+}
+html[data-theme="brutalist"] .effect-switcher .effect-nav-arrow:hover{
+  background:#d946ef; box-shadow:none; transform:none;
+}
+html[data-theme="brutalist"] .effect-switcher .effect-nav-current{
+  box-shadow:none; background:#fff; color:#000;
+  font-family:var(--kami-font-mono);
+}
+html[data-theme="brutalist"] .effect-switcher .effect-nav-current:hover{
+  background:#d946ef; transform:none; box-shadow:none;
+}
+/* Brutalist mode buttons */
+html[data-theme="brutalist"] .wa-mode-btn{
+  background:#fff; color:#000; border:2px solid #000; box-shadow:3px 3px 0 #000;
+  font-family:var(--kami-font-mono); text-transform:uppercase; letter-spacing:.06em;
+  transition:none;
+}
+html[data-theme="brutalist"] .wa-mode-btn:hover{
+  background:#d946ef; color:#000; box-shadow:4px 4px 0 #000; transform:translate(-1px,-1px);
+}
+html[data-theme="brutalist"] .wa-mode-btn.active{
+  background:#d946ef; color:#000; border-color:#000; box-shadow:3px 3px 0 #000;
+  transform:none;
+}
+
 /* --- EDITORIAL --- serif italic, ink + ochre, subtle borders, 2px radius --- */
 html[data-theme="editorial"] .wa-actions button,
 html[data-theme="editorial"] .effect-nav a,
@@ -545,6 +603,23 @@ html[data-theme="editorial"] .wg input[type="checkbox"]{ border:1px solid rgba(2
 html[data-theme="editorial"] .wg input[type="checkbox"]::after{ background:#16140c; }
 html[data-theme="editorial"] .wg input[type="checkbox"]:checked{ background:#d4a040; border-color:#d4a040 }
 html[data-theme="editorial"] .wg input[type="checkbox"]:checked::after{ background:#f8f3ea; }
+
+/* Editorial effect-switcher: remove individual arrow borders (outer border suffices) */
+html[data-theme="editorial"] .effect-switcher .effect-nav-arrow{
+  border:none; border-radius:0;
+}
+html[data-theme="editorial"] .effect-switcher .effect-nav-arrow:first-child{ border-right:1px solid rgba(22,20,12,.25); }
+html[data-theme="editorial"] .effect-switcher .effect-nav-arrow:last-child{ border-left:1px solid rgba(22,20,12,.25); }
+/* Editorial mode buttons */
+html[data-theme="editorial"] .wa-mode-btn{
+  background:transparent; color:#16140c; border:1px solid rgba(22,20,12,.25); border-radius:2px;
+  font-family:Georgia, 'EB Garamond', serif; font-style:italic;
+  transition:background .35s ease, color .35s ease, border-color .35s ease;
+}
+html[data-theme="editorial"] .wa-mode-btn:hover,
+html[data-theme="editorial"] .wa-mode-btn.active{
+  background:#16140c; color:#f3eee2; border-color:#16140c;
+}
 
 /* --- TERMINAL --- dashed borders, mono, phosphor amber, brackets --- */
 html[data-theme="terminal"] .wa-actions button,
@@ -579,6 +654,25 @@ html[data-theme="terminal"] .wg input[type="checkbox"]:checked{ background:#9eff
 html[data-theme="terminal"] .wg input[type="checkbox"]:checked::after{ background:#020806; }
 html[data-theme="terminal"] .wg{ border:1px dashed rgba(255,209,102,.4); border-radius:0; background:#0d1117 }
 
+/* Terminal effect-switcher: remove individual arrow borders */
+html[data-theme="terminal"] .effect-switcher .effect-nav-arrow{
+  border:none;
+}
+html[data-theme="terminal"] .effect-switcher .effect-nav-arrow:first-child{ border-right:1px dashed rgba(255,209,102,.45); }
+html[data-theme="terminal"] .effect-switcher .effect-nav-arrow:last-child{ border-left:1px dashed rgba(255,209,102,.45); }
+/* Terminal mode buttons */
+html[data-theme="terminal"] .wa-mode-btn{
+  background:transparent; color:#ffd166; border:1px dashed rgba(255,209,102,.45);
+  font-family:var(--kami-font-mono); text-transform:uppercase; letter-spacing:.04em;
+  transition:background 16ms linear, color 16ms linear;
+}
+html[data-theme="terminal"] .wa-mode-btn::before{ content:"["; opacity:.55; margin-right:1px }
+html[data-theme="terminal"] .wa-mode-btn::after{ content:"]"; opacity:.55; margin-left:1px }
+html[data-theme="terminal"] .wa-mode-btn:hover,
+html[data-theme="terminal"] .wa-mode-btn.active{
+  background:#ffd166; color:#0d1117; border-color:#ffd166; border-style:solid;
+}
+
 /* --- ZEN --- pill shapes, sage, soft transitions --- */
 html[data-theme="zen"] .wa-actions button,
 html[data-theme="zen"] .effect-nav a,
@@ -605,6 +699,25 @@ html[data-theme="zen"] .wg input[type="checkbox"]::after{ background:#3a3a32; }
 html[data-theme="zen"] .wg input[type="checkbox"]:checked{ background:#3a3a32; border-color:#3a3a32 }
 html[data-theme="zen"] .wg input[type="checkbox"]:checked::after{ background:#ecead8; }
 html[data-theme="zen"] .wg{ border:1px solid rgba(58,58,50,.12); border-radius:14px }
+
+/* Zen effect-switcher: remove individual arrow borders */
+html[data-theme="zen"] .effect-switcher .effect-nav-arrow{
+  border:none;
+}
+html[data-theme="zen"] .effect-switcher .effect-nav-arrow:first-child{ border-right:1px solid rgba(58,58,50,.25); }
+html[data-theme="zen"] .effect-switcher .effect-nav-arrow:last-child{ border-left:1px solid rgba(58,58,50,.25); }
+/* Zen mode buttons */
+html[data-theme="zen"] .wa-mode-btn{
+  background:transparent; color:#3a3a32; border:1px solid rgba(58,58,50,.25); border-radius:999px;
+  font-weight:300; letter-spacing:.04em; text-transform:lowercase;
+  transition:background .6s cubic-bezier(.22,1,.36,1), color .6s, border-color .6s;
+}
+html[data-theme="zen"] .wa-mode-btn:hover{
+  background:rgba(58,58,50,.1); color:#1f1f1c; border-color:#1f1f1c;
+}
+html[data-theme="zen"] .wa-mode-btn.active{
+  background:#3a3a32; color:#ecead8; border-color:#3a3a32;
+}
 
 /* ---------- SPLASH OVERLAY ---------- */
 .wa-splash{

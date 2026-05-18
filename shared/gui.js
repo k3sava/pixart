@@ -20,6 +20,7 @@
       this._initCollapse();
       panelEl.querySelectorAll('.wg-row').forEach(r => this._bindRow(r));
       this._initModeBar();
+      this._initPanelToggle();
       // Expose globally so per-frame paint code in each effect can push
       // animated/cursor values back into the sliders without firing change
       // events (see flashValues).
@@ -103,6 +104,21 @@
       // handle. Clicking the title now does nothing — keep it as a header.
     }
     _initCollapse(){}
+    _initPanelToggle(){
+      const btn = document.getElementById('toggle-controls');
+      if(!btn) return;
+      btn.addEventListener('click', () => {
+        if(window.matchMedia('(max-width:640px)').matches){
+          const open = document.body.classList.toggle('panel-open');
+          btn.classList.toggle('active', open);
+          btn.setAttribute('aria-pressed', String(open));
+        } else {
+          const hidden = document.body.classList.toggle('panel-hidden');
+          btn.classList.toggle('active', !hidden);
+          btn.setAttribute('aria-pressed', String(!hidden));
+        }
+      });
+    }
     _initModeBar(){
       const animRow  = this.rows.get('animate');
       const interRow = this.rows.get('interactive');
@@ -111,9 +127,6 @@
       if(animRow)  animRow.style.display  = 'none';
       if(interRow) interRow.style.display = 'none';
 
-      const bar = document.createElement('div');
-      bar.className = 'wg-mode-bar';
-
       const defs = [];
       if(animRow)  defs.push({ row: animRow,  key: 'animate',     label: 'Animate' });
       if(interRow) defs.push({ row: interRow, key: 'interactive', label: 'Cursor'  });
@@ -121,10 +134,9 @@
       const btns = defs.map(({ row, key, label }) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-mode-btn';
+        btn.className = 'wa-mode-btn';
         btn.textContent = label;
         if(this.params[key]) btn.classList.add('active');
-        bar.appendChild(btn);
         return { btn, row, key };
       });
 
@@ -171,13 +183,31 @@
         };
       }
 
-      const panelBody = this.el.querySelector('.wg-body');
-      if(panelBody) panelBody.before(bar);
-      else {
-        const title = this.el.querySelector('.wg-title');
-        if(title) title.after(bar);
-        else this.el.append(bar);
+      // Desktop: insert buttons before #toggle-controls in the header
+      const toggleCtrl = document.getElementById('toggle-controls');
+      for(const { btn } of btns){
+        if(toggleCtrl) toggleCtrl.before(btn);
+        else document.querySelector('.wa-actions')?.append(btn);
       }
+
+      // Mobile bottom bar: move same button elements into it on narrow viewports
+      const bottomBar = document.createElement('div');
+      bottomBar.className = 'wa-mode-bottom';
+      document.body.appendChild(bottomBar);
+
+      const mq = window.matchMedia('(max-width:640px)');
+      const place = () => {
+        if(mq.matches){
+          for(const { btn } of btns) bottomBar.appendChild(btn);
+        } else {
+          for(const { btn } of btns){
+            if(toggleCtrl) toggleCtrl.before(btn);
+            else document.querySelector('.wa-actions')?.append(btn);
+          }
+        }
+      };
+      place();
+      mq.addEventListener('change', place);
     }
     _bindRow(row){
       const key = row.dataset.key;
