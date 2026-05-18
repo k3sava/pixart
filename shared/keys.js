@@ -238,8 +238,24 @@
     }
   }
 
+  function fuseSwitcher(){
+    const nav = document.querySelector('.effect-nav.compact');
+    if(!nav) return;
+    const arrows = [...nav.querySelectorAll('.effect-nav-arrow')];
+    const current = nav.querySelector('.effect-nav-current');
+    if(arrows.length < 2 || !current) return;
+    const prev = arrows[0], next = arrows[arrows.length - 1];
+    const g = document.createElement('div');
+    g.className = 'effect-switcher';
+    prev.after(g);
+    g.appendChild(prev);
+    g.appendChild(current);
+    g.appendChild(next);
+  }
+
   function init(){
     buildSplash();
+    fuseSwitcher();
     const helpBtn = document.getElementById('help-btn');
     if(helpBtn) helpBtn.addEventListener('click', showSplash);
     // Wire the compact-nav chevron button.

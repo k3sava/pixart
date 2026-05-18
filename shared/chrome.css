@@ -166,6 +166,49 @@ body.wa-effect{ background:#000; }
   .effect-nav.compact .effect-nav-home, .effect-nav.compact .effect-nav-sep{ display:none; }
 }
 
+/* Fused switcher — prev ‹ | name | › next as one pill */
+.effect-switcher{
+  display:flex; align-items:stretch;
+  border:1px solid var(--bar-border);
+  border-radius:6px;
+  overflow:hidden;
+  flex:0 0 auto;
+}
+.effect-switcher .effect-nav-arrow{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px;
+  border:none; border-radius:0;
+  color:var(--text); opacity:.6;
+  text-decoration:none;
+  font-family:var(--kami-font-mono); font-size:14px;
+  background:transparent;
+  transition:opacity .15s, background .15s;
+  flex:0 0 auto;
+}
+.effect-switcher .effect-nav-arrow:first-child{
+  border-right:1px solid var(--bar-border);
+}
+.effect-switcher .effect-nav-arrow:last-child{
+  border-left:1px solid var(--bar-border);
+}
+.effect-switcher .effect-nav-arrow:hover{ opacity:1; background:rgba(128,128,128,.1); }
+.effect-switcher .effect-nav-current{
+  min-width:140px;
+  display:inline-flex; align-items:center; justify-content:center; gap:0;
+  background:transparent;
+  border:none; border-radius:0;
+  padding:0 10px;
+  font-family:var(--kami-font-body); font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+  transition:background .15s;
+}
+.effect-switcher .effect-nav-current:hover{ background:rgba(128,128,128,.08); }
+.effect-switcher .effect-nav-chev{ display:none; }
+@media (max-width:640px){
+  .effect-switcher .effect-nav-current{ min-width:100px; }
+}
+
 /* ---------- Nav overlay (⌘K / / / chevron-click) ---------- */
 .pix-nav-overlay{
   position:fixed; inset:0;
