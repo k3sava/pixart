@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>pixart — 35 image effects</title>
-<meta name="description" content="A wall of 35 client-side image effects: ASCII, halftone, dither, ink-wash, kaleidoscope, slit-scan, neon-glow, moiré, flow-field, and more. Drop in an image, pick an effect, play.">
+<title>pixart — 37 image effects</title>
+<meta name="description" content="A wall of 37 client-side image effects: ASCII, halftone, dither, ink-wash, kaleidoscope, slit-scan, neon-glow, moiré, flow-field, caustic, and more. Drop in an image, pick an effect, play.">
 <link rel="canonical" href="https://toys.iamkesava.com/pixart/">
 <link rel="stylesheet" href="shared/chrome.css">
 <link rel="stylesheet" href="shared/theme-tokens.css">
@@ -293,8 +293,8 @@
 <main class="home-wrap">
   <div class="home-lede">
     <h1 class="home-title">pixart</h1>
-    <p class="home-sub">35 client-side image effects. drop a picture, pick a treatment, play.</p>
-    <div class="home-count" id="home-count">35 of 35</div>
+    <p class="home-sub">37 client-side image effects. drop a picture, pick a treatment, play.</p>
+    <div class="home-count" id="home-count">37 of 37</div>
   </div>
 
   <div class="home-controls">
@@ -335,13 +335,15 @@
 <script>
 (function(){
   'use strict';
-  // 35 effects with category. Source of truth shared with shared/keys.js
+  // 37 effects with category. Source of truth shared with shared/keys.js
   // and scripts/sync-nav.py — keep aligned.
   const EFFECTS = [
     { slug:'ascii',          name:'ascii',          cat:'Type' },
     { slug:'bevel',          name:'bevel',          cat:'Tonal' },
     { slug:'bloom',          name:'bloom',          cat:'Cinematic' },
+    { slug:'caustic',        name:'caustic',        cat:'Cinematic' },
     { slug:'cellular',       name:'cellular',       cat:'Generative' },
+    { slug:'chromatic-diffusion', name:'chromatic diffusion', cat:'Cinematic' },
     { slug:'contour',        name:'contour',        cat:'Tonal' },
     { slug:'crosshatch',     name:'crosshatch',     cat:'Painterly' },
     { slug:'crt',            name:'crt',            cat:'Cinematic' },

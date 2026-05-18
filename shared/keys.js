@@ -1,11 +1,11 @@
 // Global keyboard shortcuts + splash + nav overlay for pixart.
-// 35 effects total; keys 1-9 map to the first 9 alphabetically, 0 to the 10th.
-// The remaining 25 are reachable via the overlay nav (⌘K, /, or chevron click).
+// 37 effects total; keys 1-9 map to the first 9 alphabetically, 0 to the 10th.
+// The remaining 27 are reachable via the overlay nav (⌘K, /, or chevron click).
 (function(){
   'use strict';
   // Source of truth — mirrored in pixart/index.html and scripts/sync-nav.py.
   const EFFECTS = [
-    'ascii','bevel','bloom','cellular','contour',
+    'ascii','bevel','bloom','caustic','cellular','chromatic-diffusion','contour',
     'crosshatch','crt','datamosh','displace','distort','dithering',
     'dots','edge','film-grain','flow-field','flow-warp','glitch-scan','gradients',
     'halftone-cmyk','ink-wash','kaleidoscope','moire','mosaic','neon-glow',
@@ -18,7 +18,7 @@
     ['Tonal',      ['bevel','contour','edge','gradients','recolor','split-tone']],
     ['Halftone',   ['dithering','dots','halftone-cmyk','moire','stippling']],
     ['Geometric',  ['displace','distort','flow-warp','kaleidoscope','mosaic','photomosaic','superpixel','voronoi']],
-    ['Cinematic',  ['bloom','crt','film-grain','neon-glow','rgb-shift']],
+    ['Cinematic',  ['bloom','caustic','chromatic-diffusion','crt','film-grain','neon-glow','rgb-shift']],
     ['Painterly',  ['crosshatch','ink-wash','watercolor']],
     ['Glitch',     ['datamosh','glitch-scan','pixel-sort','scatter','slit-scan']],
     ['Generative', ['cellular','flow-field','patterns']],
@@ -126,7 +126,7 @@
       <div class="pix-nav-overlay-panel" role="document">
         <div class="pix-nav-overlay-head">
           <span class="pix-nav-overlay-icon">⌕</span>
-          <input type="search" id="pix-nav-search" autocomplete="off" placeholder="search 35 effects…" aria-label="Search effects">
+          <input type="search" id="pix-nav-search" autocomplete="off" placeholder="search 37 effects…" aria-label="Search effects">
           <button type="button" class="pix-nav-overlay-close" aria-label="Close">esc</button>
         </div>
         <div class="pix-nav-overlay-body">${groupsHTML}</div>
@@ -209,11 +209,11 @@
     el.innerHTML = `
       <div class="wa-splash-inner">
         <div class="wa-splash-title">pixart</div>
-        <div class="wa-splash-tag">35 effects. drop an image or video. then play.</div>
+        <div class="wa-splash-tag">37 effects. drop an image or video. then play.</div>
         <div class="wa-splash-grid">
           <span>${numbered}</span><span>jump to first 10 effects</span>
-          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (35 total)</span>
-          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 35</span>
+          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (37 total)</span>
+          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 37</span>
           <span><kbd>T</kbd></span><span>cycle theme</span>
           <span><kbd>O</kbd></span><span>open file picker</span>
           <span><kbd>R</kbd></span><span>cycle sample</span>
