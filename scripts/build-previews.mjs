@@ -61,8 +61,9 @@ async function captureSlug(browser, slug) {
     await page.waitForFunction(() => !!window.PIXSource && !!window.WAEffect, { timeout: 10000 });
 
     // Hide all chrome — header, controls, footer, overlays.
+    // .wa-mode-bottom is created dynamically by gui.js (Animate/Touch bottom bar).
     await page.addStyleTag({ content: `
-      .wa-top, .wg, .wa-bottom, .wa-rec,
+      .wa-top, .wg, .wa-bottom, .wa-rec, .wa-mode-bottom,
       #pix-splash, #pix-nav-overlay { display: none !important; }
       html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #000 !important; }
     ` });
@@ -72,6 +73,27 @@ async function captureSlug(browser, slug) {
     await page.waitForFunction(() =>
       window.PIXSource?.isReady() && window.PIXSource.width > 1300,
     { timeout: 8000 }).catch(() => {});  // best-effort; proceed even if slow
+
+    // The source canvas is always 1280×1280 (MAX_DIM×MAX_DIM). The real image is
+    // drawn into it centred via fitRect-contain, leaving letterbox bars. Effects
+    // that read PIXSource.getCanvas().width/height see 1:1 and produce side bars.
+    // Fix: replace getCanvas() with a new canvas at natural (14:9) dimensions so
+    // both PIXSource.width/height AND getCanvas().width/height agree on ratio.
+    await page.evaluate(() => {
+      const sc = window.PIXSource.getCanvas();
+      const w  = window.PIXSource.width;   // e.g. 1600
+      const h  = window.PIXSource.height;  // e.g. 1029
+      const maxDim = 1280;
+      const scale  = Math.min(maxDim / w, maxDim / h);
+      const iw = Math.round(w * scale);
+      const ih = Math.round(h * scale);
+      const ix = Math.round((maxDim - iw) / 2);
+      const iy = Math.round((maxDim - ih) / 2);
+      const nc = document.createElement('canvas');
+      nc.width = w; nc.height = h;
+      nc.getContext('2d').drawImage(sc, ix, iy, iw, ih, 0, 0, w, h);
+      window.PIXSource.getCanvas = () => nc;
+    });
 
     // Force the stage + canvas to fill the full viewport.
     // The body class trick: adding panel-collapsed ensures the more-specific
