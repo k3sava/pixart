@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Patterns — pixart</title>
+<title>Neon Glow — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../neon-glow/" title="Previous effect (neon-glow)" aria-label="Previous">‹</a>
-    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 30 effects">
-      <span class="effect-nav-name">patterns</span>
+    <a class="effect-nav-arrow" href="../mosaic/" title="Previous effect (mosaic)" aria-label="Previous">‹</a>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 29 effects">
+      <span class="effect-nav-name">neon-glow</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../pixel-sort/" title="Next effect (pixel-sort)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../patterns/" title="Next effect (patterns)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -44,7 +44,7 @@
 <aside class="wg" id="panel">
   <div class="wg-title" role="button" tabindex="0">Controls</div>
   <div class="wg-body">
-    <!-- Shared source picker (image / video) — every effect shares these. -->
+    <!-- Shared source picker (image / video) -->
     <div class="wg-row wg-file" data-key="source" data-handler="pix-source">
       <div class="wg-name">Source</div>
       <div class="wg-widget">
@@ -60,36 +60,34 @@
         <select><option value="cover">cover</option><option value="contain">contain</option></select>
       </div>
     </div>
-    <div class="wg-row wg-select" data-key="ratio"><div class="wg-name">Ratio</div><div class="wg-widget"><select><option value="square">1:1</option><option value="portrait">9:16</option><option value="landscape">16:9</option></select></div></div>
-    <div class="wg-row wg-color" data-key="bg">
-      <div class="wg-name">Background</div>
+
+    <!-- Neon-glow specific -->
+    <div class="wg-row wg-color" data-key="glowColor">
+      <div class="wg-name">Glow color</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
-    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="breath">breath</option><option value="tone">tone</option></select></div></div>
+    <div class="wg-row wg-slider" data-key="glowRadius"      data-min="2"   data-max="30"   data-step="1"><div class="wg-name">Glow radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="edgeThreshold"   data-min="0"   data-max="100"  data-step="1"><div class="wg-name">Edge threshold</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="edgeStrength"    data-min="0"   data-max="1"    data-step="0.01"><div class="wg-name">Edge strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="chromatic"       data-min="0"   data-max="20"   data-step="1"><div class="wg-name">Chromatic shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="background"      data-min="0"   data-max="1"    data-step="0.01"><div class="wg-name">Background</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+
+    <!-- Animation -->
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="color-spin">color-spin</option><option value="pulse">pulse</option><option value="scan">scan</option></select></div></div>
     <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <!-- effect-specific control rows -->
-    <div class="wg-row wg-file" data-key="patternImage" data-handler="pix-pattern">
-      <div class="wg-name">Tile image</div>
-      <div class="wg-widget">
-        <label class="wg-file-label">click to choose</label>
-        <button type="button" class="wg-file-open" title="Open pattern tile image">+</button>
-        <input type="file" accept="image/*">
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="blurAmount"         data-min="0"   data-max="10"   data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="grainAmount"        data-min="0"   data-max="1"    data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="gamma"              data-min="0.1" data-max="2"    data-step="0.1"><div class="wg-name">Brightness</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="blackPoint"         data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Shadows</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="whitePoint"         data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Highlights</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="lightnessThreshold" data-min="0"   data-max="255"  data-step="1"><div class="wg-name">Threshold</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="gridDensityNumber"  data-min="10"  data-max="150"  data-step="1"><div class="wg-name">Tile density</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-color"  data-key="bgColor"><div class="wg-name">Background colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+
+    <!-- Preprocessor + chrome -->
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-  
-    <!-- Animation modes — rendered as radio pills by the wg-select pill renderer. -->
+    <div class="wg-row wg-slider" data-key="canvasSize"  data-min="200"  data-max="1200"  data-step="50"><div class="wg-name">Resolution</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="blur"        data-min="0"    data-max="10"    data-step="1"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="grain"       data-min="0"    data-max="0.5"   data-step="0.01"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-color"  data-key="bg">
+      <div class="wg-name">Stage bg</div>
+      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
+    </div>
   </div>
-  <p class="wg-credit">inspired by <a href="https://www.tooooools.app/" target="_blank" rel="noopener">tooooools.app</a></p>
+  <p class="wg-credit">inspired by <a href="https://en.wikipedia.org/wiki/Neon_photography" target="_blank" rel="noopener">neon glow photography and blacklight art</a></p>
 </aside>
 
 <div class="wa-rec" role="status"><span class="dot"></span><span class="label">Recording</span><div class="track"><div class="bar"></div></div></div>
