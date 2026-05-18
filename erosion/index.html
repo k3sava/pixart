@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Film grain — pixart</title>
+<title>Erosion — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../erosion/" title="Previous effect (erosion)" aria-label="Previous">‹</a>
-    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
-      <span class="effect-nav-name">film-grain</span>
+    <a class="effect-nav-arrow" href="../edge/" title="Previous effect (edge)" aria-label="Previous">‹</a>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 47 effects">
+      <span class="effect-nav-name">erosion</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../flow-field/" title="Next effect (flow-field)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../film-grain/" title="Next effect (film-grain)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -53,52 +53,23 @@
         <input type="file" accept="image/*,video/*">
       </div>
     </div>
-    <div class="wg-row wg-select" data-key="fit">
-      <div class="wg-name">Fit</div>
-      <div class="wg-widget">
-        <select><option value="cover">cover</option><option value="contain">contain</option></select>
-      </div>
-    </div>
+    <div class="wg-row wg-select" data-key="fit"><div class="wg-name">Fit</div><div class="wg-widget"><select><option value="cover">cover</option><option value="contain">contain</option></select></div></div>
     <div class="wg-row wg-select" data-key="ratio"><div class="wg-name">Ratio</div><div class="wg-widget"><select><option value="square">1:1</option><option value="portrait">9:16</option><option value="landscape">16:9</option></select></div></div>
-    <div class="wg-row wg-color" data-key="bg">
-      <div class="wg-name">Background</div>
-      <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
-    </div>
-    <div class="wg-row wg-select" data-key="mode">
-      <div class="wg-name">Mode</div>
-      <div class="wg-widget">
-        <select>
-          <option value="breath">breath</option>
-          <option value="tone">tone</option>
-          <option value="bloom">bloom</option>
-        </select>
-      </div>
-    </div>
+    <div class="wg-row wg-color" data-key="bg"><div class="wg-name">Background</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="erode">erode</option><option value="crumble">crumble</option><option value="age">age</option></select></div></div>
     <div class="wg-row wg-bool" data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool" data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-select" data-key="filmStock">
-      <div class="wg-name">Film</div>
-      <div class="wg-widget">
-        <select>
-          <option value="portra-400">portra 400</option>
-          <option value="vision3-5219">vision3 5219</option>
-          <option value="ektar-100">ektar 100</option>
-          <option value="velvia-50">velvia 50</option>
-          <option value="tri-x-400">tri-x 400</option>
-          <option value="cinestill-800t">cinestill 800t</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="grainAmount" data-min="0" data-max="1" data-step="0.02"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="grainSize" data-min="0.5" data-max="4" data-step="0.1"><div class="wg-name">Grain size</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="halation" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Halation</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="halationRadius" data-min="0" data-max="30" data-step="1"><div class="wg-name">Halation radius</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="vignette" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Vignette</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="temperature" data-min="-1" data-max="1" data-step="0.05"><div class="wg-name">Warmth</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-bool" data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-
+    <div class="wg-row wg-slider" data-key="blur" data-min="0" data-max="10" data-step="0.5"><div class="wg-name">Blur</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="grain" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Grain</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="gamma" data-min="0.2" data-max="3" data-step="0.05"><div class="wg-name">Brightness</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="blackPoint" data-min="0" data-max="128" data-step="1"><div class="wg-name">Shadows</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="whitePoint" data-min="128" data-max="255" data-step="1"><div class="wg-name">Highlights</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="maxRadius" data-min="0" data-max="20" data-step="1"><div class="wg-name">Erosion depth</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="edgeThreshold" data-min="5" data-max="120" data-step="5"><div class="wg-name">Edge sensitivity</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="erosionStrength" data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Erosion strength</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-bool" data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox" checked></label></div>
   </div>
-  <div class="wg-credit">Inspired by <a href="https://en.wikipedia.org/wiki/Film_grain" target="_blank" rel="noopener">film grain</a> — 35mm analog noise (Kodak Tri-X, Ilford HP5)</div>
+  <div class="wg-credit">Inspired by <a href="https://halftone.xoihazard.com" target="_blank" rel="noopener">Halftone Maker</a> stippling and morphological image erosion</div>
 </aside>
 
 <div class="wa-rec" role="status"><span class="dot"></span><span class="label">Recording</span><div class="track"><div class="bar"></div></div></div>
