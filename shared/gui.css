@@ -188,6 +188,22 @@
   /* suppress terminal bracket pseudo-elements in the bottom bar */
   .wa-mode-bottom .wa-mode-btn::before,
   .wa-mode-bottom .wa-mode-btn::after{ display:none !important; }
+
+  /* Settings/toggle-controls button when moved into bottom bar on mobile */
+  .wa-mode-bottom #toggle-controls{
+    flex:1; height:100%;
+    border:none !important; border-radius:0 !important;
+    border-right:1px solid var(--bar-border) !important;
+    box-shadow:none !important; transform:none !important;
+    background:transparent; color:var(--text);
+    font-family:var(--kami-font-body); font-size:12px; font-weight:500;
+    letter-spacing:.04em; text-transform:uppercase;
+    cursor:pointer; padding:0;
+    transition:background .15s, color .15s;
+  }
+  .wa-mode-bottom #toggle-controls::before,
+  .wa-mode-bottom #toggle-controls::after{ display:none !important; }
+  .wa-mode-bottom #toggle-controls.active{ background:var(--accent); color:var(--bg); }
 }
 
 /* Inspiration credit, anchored to the bottom of the panel as a flex sibling

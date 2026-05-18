@@ -128,14 +128,16 @@
       if(interRow) interRow.style.display = 'none';
 
       const defs = [];
-      if(animRow)  defs.push({ row: animRow,  key: 'animate',     label: 'Animate' });
-      if(interRow) defs.push({ row: interRow, key: 'interactive', label: 'Cursor'  });
+      if(animRow)  defs.push({ row: animRow,  key: 'animate',      dLabel: 'Animate', mLabel: 'Animate' });
+      if(interRow) defs.push({ row: interRow, key: 'interactive',  dLabel: 'Cursor',  mLabel: 'Touch'   });
 
-      const btns = defs.map(({ row, key, label }) => {
+      const btns = defs.map(({ row, key, dLabel, mLabel }) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'wa-mode-btn';
-        btn.textContent = label;
+        btn.dataset.dLabel = dLabel;
+        btn.dataset.mLabel = mLabel;
+        btn.textContent = dLabel;
         if(this.params[key]) btn.classList.add('active');
         return { btn, row, key };
       });
@@ -183,14 +185,10 @@
         };
       }
 
-      // Desktop: insert buttons before #toggle-controls in the header
-      const toggleCtrl = document.getElementById('toggle-controls');
-      for(const { btn } of btns){
-        if(toggleCtrl) toggleCtrl.before(btn);
-        else document.querySelector('.wa-actions')?.append(btn);
-      }
+      const settingsBtn = document.getElementById('toggle-controls');
+      const helpBtn     = document.getElementById('help-btn');
+      const actions     = document.querySelector('.wa-actions');
 
-      // Mobile bottom bar: move same button elements into it on narrow viewports
       const bottomBar = document.createElement('div');
       bottomBar.className = 'wa-mode-bottom';
       document.body.appendChild(bottomBar);
@@ -198,11 +196,26 @@
       const mq = window.matchMedia('(max-width:640px)');
       const place = () => {
         if(mq.matches){
-          for(const { btn } of btns) bottomBar.appendChild(btn);
+          // Mobile: bottom bar = [Animate][Settings][Touch]
+          for(const { btn } of btns) btn.textContent = btn.dataset.mLabel;
+          if(btns[0])     bottomBar.appendChild(btns[0].btn);
+          if(settingsBtn) bottomBar.appendChild(settingsBtn);
+          if(btns[1])     bottomBar.appendChild(btns[1].btn);
         } else {
-          for(const { btn } of btns){
-            if(toggleCtrl) toggleCtrl.before(btn);
-            else document.querySelector('.wa-actions')?.append(btn);
+          // Desktop: restore labels
+          for(const { btn } of btns) btn.textContent = btn.dataset.dLabel;
+          // Move settings back to header (before help-btn)
+          if(settingsBtn && settingsBtn.parentElement !== actions){
+            if(helpBtn && helpBtn.parentElement === actions){
+              actions.insertBefore(settingsBtn, helpBtn);
+            } else if(actions){
+              actions.appendChild(settingsBtn);
+            }
+          }
+          // Insert [Animate][Cursor] at front of .wa-actions
+          if(actions){
+            const ref = actions.firstElementChild;
+            for(const { btn } of btns) actions.insertBefore(btn, ref);
           }
         }
       };
