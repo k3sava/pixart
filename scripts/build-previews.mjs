@@ -1,18 +1,13 @@
 #!/usr/bin/env node
-/* Build per-effect homepage video previews.
+/* Build per-effect homepage video previews for pixart.
  *
- * Spec:
- *   - Skip splash via addInitScript.
- *   - Load portrait.jpg via PIXSource (boot default).
- *   - 20-second seamless loop: source → effect peak → source. Endpoints are
- *     pure source (effect not applied) so the video can loop without a jump.
- *   - Per frame:
- *       t = i / FRAME_COUNT in [0, 1)
- *       1. WAEffect.renderAt(t) — deterministic render at this loop position.
- *       2. Overlay the source canvas on top with alpha = 1 - sin(π·t).
- *          At t=0 / t=1 alpha=1 (source fully covers effect → see source).
- *          At t=0.5 alpha=0 (effect fully visible).
- *   - 480 frames @ 24fps = 20s. Screenshot #cv → ffmpeg mp4 ~640x400.
+ * Approach:
+ *   - Canvas forced to fill the full 560×360 viewport (disabling applyRatio).
+ *   - No crossfade overlay — the square sourceCanvas would create a "square
+ *     within the canvas" artefact. Instead render the effect directly.
+ *   - Animate mode ON; drive frames deterministically via WAEffect.renderAt(t).
+ *   - t loops 0→1 over DURATION_S seconds — natural fade-in / peak / fade-out.
+ *   - 560×360 output matches the 280/180 preview card aspect ratio exactly.
  */
 import { chromium } from 'playwright';
 import { spawnSync } from 'node:child_process';
@@ -32,13 +27,16 @@ const ALL_EFFECTS = [
   'halftone-cmyk','ink-wash','kaleidoscope','mosaic','patterns','pixel-sort',
   'recolor','rgb-shift','scatter','slit-scan','stippling','voronoi','watercolor',
 ];
-const onlyArg = process.argv.slice(2);
+const onlyArg = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const skipExisting = process.argv.includes('--skip-existing');
 const EFFECTS = onlyArg.length ? onlyArg : ALL_EFFECTS;
 
-const FPS = Number(process.env.PIX_FPS || 24);
-const DURATION_S = Number(process.env.PIX_DUR || 20);
-const FRAME_COUNT = Math.round(FPS * DURATION_S);
-const VIEWPORT = { width: 480, height: 300 };
+const FPS          = Number(process.env.PIX_FPS  || 24);
+const DURATION_S   = Number(process.env.PIX_DUR  || 20);
+const FRAME_COUNT  = Math.round(FPS * DURATION_S);
+// Exact 280/180 card aspect ratio × 2.
+const VIEWPORT     = { width: 560, height: 360 };
+const FFMPEG       = process.env.FFMPEG || '/opt/homebrew/bin/ffmpeg';
 
 if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true });
 
@@ -48,6 +46,8 @@ async function captureSlug(browser, slug) {
   const ctx = await browser.newContext({ viewport: VIEWPORT });
   await ctx.addInitScript(() => {
     try { localStorage.setItem('pix.splash.seen', '1'); } catch {}
+    // Force landscape ratio so the effect initialises expecting landscape dims.
+    try { localStorage.setItem('pix.ratio', 'landscape'); } catch {}
   });
   const page = await ctx.newPage();
   const tmp = mkdtempSync(join(tmpdir(), `pix-${slug}-`));
@@ -55,77 +55,68 @@ async function captureSlug(browser, slug) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await page.waitForFunction(() => !!window.PIXSource && !!window.WAEffect, { timeout: 10000 });
 
-    // Hide all chrome — header, controls panel, footer, splash — so the
-    // captured frames are pure canvas. Element.screenshot() crops to bounds,
-    // but overlapping absolute elements still composite on top.
+    // Hide all chrome — header, controls, footer, overlays.
     await page.addStyleTag({ content: `
-      .wa-top, .wg, .wa-bottom, .wa-rec, #pix-splash, #pix-nav-overlay { display: none !important; }
-      body.wa-effect, .wa-stage { background: #000; }
-      .wa-stage { position: fixed; inset: 0; }
-      #cv { position: fixed; inset: 0; width: 100vw !important; height: 100vh !important; }
+      .wa-top, .wg, .wa-bottom, .wa-rec,
+      #pix-splash, #pix-nav-overlay { display: none !important; }
+      html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #000 !important; }
+      .wa-stage { position: fixed !important; inset: 0 !important; background: #000 !important; }
     ` });
 
-    // PIXSource boots with the first SAMPLES entry. Give it time to apply.
-    await page.waitForTimeout(700);
+    // Wait for PIXSource to load the default sample image.
+    await page.waitForTimeout(800);
 
-    // Toggle Animate ON so applyMode() actually runs inside renderAt(t).
+    // Disable applyRatio and force canvas to fill the full viewport.
+    // cv.style.setProperty(..., 'important') sets inline !important which wins
+    // over all stylesheet rules including the applyRatio inline assignments.
+    await page.evaluate(([vw, vh]) => {
+      // Kill applyRatio so it can't shrink the canvas after we resize.
+      if (window.PIXSource) window.PIXSource.applyRatio = () => {};
+
+      const cv = document.getElementById('cv');
+      if (!cv) return;
+      cv.style.setProperty('position',  'fixed',      'important');
+      cv.style.setProperty('left',      '0px',        'important');
+      cv.style.setProperty('top',       '0px',        'important');
+      cv.style.setProperty('width',     vw + 'px',    'important');
+      cv.style.setProperty('height',    vh + 'px',    'important');
+      cv.style.setProperty('transform', 'none',       'important');
+      cv.style.setProperty('max-width', 'none',       'important');
+      cv.style.setProperty('max-height','none',       'important');
+
+      // Fire both resize signals so each effect's fitCanvas() picks up the
+      // new dimensions and repaints at full resolution.
+      window.dispatchEvent(new CustomEvent('pix:fit'));
+      window.dispatchEvent(new Event('resize'));
+    }, [VIEWPORT.width, VIEWPORT.height]);
+
+    await page.waitForTimeout(400);
+
+    // Toggle Animate ON (so renderAt drives applyMode / animation logic)
+    // then immediately pause the natural RAF — we'll drive frames ourselves.
     await page.evaluate(() => {
       const row = document.querySelector('.wg-row[data-key="animate"]');
       if (row && typeof row._write === 'function') row._write(true);
-      window.WAEffect.pauseRender?.(); // stop the natural RAF — we drive frames.
+      window.WAEffect.pauseRender?.();
     });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(200);
 
-    const cv = await page.$('#cv');
-    if (!cv) throw new Error('no #cv canvas');
+    const cvEl = await page.$('#cv');
+    if (!cvEl) throw new Error('no #cv canvas');
 
-    // Pre-compute source draw rect once — source canvas size doesn't change.
     for (let i = 0; i < FRAME_COUNT; i++) {
-      const t = i / FRAME_COUNT; // [0, 1)
-      await page.evaluate((t) => {
-        // 1. Effect at this loop position.
-        window.WAEffect.renderAt(t);
-        // 2. Crossfade: overlay source with alpha = 1 - sin(π·t).
-        //    sin(π·t) is 0 at endpoints, 1 at midpoint — so overlay is
-        //    full at endpoints (source visible) and zero at midpoint
-        //    (effect visible). That gives the source → effect → source
-        //    arc the user wants from a 20-second loop.
-        const cv = document.getElementById('cv');
-        // WebGL canvases (CRT) don't expose a 2D context to overlay onto.
-        // Detect by getContextAttributes and skip the overlay — these
-        // effects still render the source recognizably through the
-        // shader pipeline.
-        const isWebGL = cv.getContext('webgl2') || cv.getContext('webgl');
-        const ctx = isWebGL ? null : cv.getContext('2d');
-        const src = !isWebGL && window.PIXSource && window.PIXSource.getCanvas
-          ? window.PIXSource.getCanvas()
-          : null;
-        if (ctx && src) {
-          const sw = src.width, sh = src.height;
-          const dw = cv.width,  dh = cv.height;
-          const sa = sw / sh,   da = dw / dh;
-          let drawW, drawH, dx, dy;
-          if (sa > da) { drawH = dh; drawW = dh * sa; dx = (dw - drawW) / 2; dy = 0; }
-          else         { drawW = dw; drawH = dw / sa; dx = 0;                dy = (dh - drawH) / 2; }
-          const alpha = 1 - Math.sin(Math.PI * t);
-          if (alpha > 0) {
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.drawImage(src, dx, dy, drawW, drawH);
-            ctx.restore();
-          }
-        }
-      }, t);
-      await cv.screenshot({ path: join(tmp, `f-${String(i).padStart(3, '0')}.png`) });
+      const t = i / FRAME_COUNT;
+      await page.evaluate((t) => { window.WAEffect.renderAt(t); }, t);
+      await cvEl.screenshot({ path: join(tmp, `f-${String(i).padStart(3, '0')}.png`) });
     }
 
     const dst = resolve(OUT, `${slug}.mp4`);
-    const ff = spawnSync('ffmpeg', [
+    const ff = spawnSync(FFMPEG, [
       '-y', '-framerate', String(FPS),
       '-i', join(tmp, 'f-%03d.png'),
-      '-c:v', 'libx264', '-preset', 'slow', '-crf', '28',
+      '-c:v', 'libx264', '-preset', 'slow', '-crf', '26',
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-      '-vf', 'scale=640:400:flags=lanczos',
+      '-vf', `scale=${VIEWPORT.width}:${VIEWPORT.height}:flags=lanczos`,
       dst,
     ], { encoding: 'utf8' });
     if (ff.status !== 0) throw new Error(`ffmpeg failed: ${ff.stderr?.slice(-400)}`);
@@ -140,14 +131,19 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const results = [];
   for (const slug of EFFECTS) {
+    const dst = resolve(OUT, `${slug}.mp4`);
+    if (skipExisting && existsSync(dst)) {
+      console.log(`SKIP ${slug.padEnd(16)} already exists`);
+      continue;
+    }
     const t0 = Date.now();
     try {
       const r = await Promise.race([
         captureSlug(browser, slug),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout >240s')), 240000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout >300s')), 300000)),
       ]);
       const dt = ((Date.now() - t0) / 1000).toFixed(1);
-      console.log(`OK ${slug.padEnd(16)} ${(r.size/1024).toFixed(0).padStart(4)}KB  ${dt}s`);
+      console.log(`OK ${slug.padEnd(16)} ${(r.size/1024).toFixed(0).padStart(5)}KB  ${dt}s`);
       results.push({ slug, ...r });
     } catch (e) {
       const dt = ((Date.now() - t0) / 1000).toFixed(1);
