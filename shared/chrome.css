@@ -50,17 +50,15 @@ html,body{
 }
 body.wa-effect{ background:#000; }
 
-/* Stage: full-viewport canvas, between the two bars. On desktop, when the
-   controls panel is uncollapsed, reserve ~320px on the right so the wordmark
-   rasterizes into the visible region instead of disappearing under the panel.
-   Effects read cv.clientWidth, so this shrinks the draw area cleanly. */
+/* Stage: full-viewport canvas. On desktop, reserve 320px on the right for the
+   controls panel. Effects read cv.clientWidth, so this shrinks the draw area cleanly. */
 .wa-stage{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;overflow:hidden;background:#000;z-index:0}
 /* Canvas is sized by shared/state.js applyRatio() to fit the selected ratio,
    centered with letterboxing. Effects read cv.clientWidth/Height which now
    honour the chosen ratio without any per-effect change. */
 .wa-stage canvas{display:block}
 @media (min-width:641px){
-  body:not(.panel-collapsed) .wa-stage{ right:320px !important; }
+  .wa-stage{ right:320px !important; }
 }
 
 /* ---------- TOP BAR ---------- */
@@ -521,7 +519,6 @@ html[data-theme="brutalist"] .wg input[type="checkbox"]:checked::after{
   background:#000;
 }
 html[data-theme="brutalist"] .wg{ border:2px solid #000; border-radius:0; box-shadow:6px 6px 0 #000 }
-html[data-theme="brutalist"] .wg-collapse{ border:2px solid #000; border-radius:0; background:#fff; color:#000; box-shadow:2px 2px 0 #000 }
 
 /* --- EDITORIAL --- serif italic, ink + ochre, subtle borders, 2px radius --- */
 html[data-theme="editorial"] .wa-actions button,
@@ -581,7 +578,6 @@ html[data-theme="terminal"] .wg input[type="checkbox"]::after{ background:#9eff0
 html[data-theme="terminal"] .wg input[type="checkbox"]:checked{ background:#9eff00; border-color:#9eff00; border-style:solid }
 html[data-theme="terminal"] .wg input[type="checkbox"]:checked::after{ background:#020806; }
 html[data-theme="terminal"] .wg{ border:1px dashed rgba(255,209,102,.4); border-radius:0; background:#0d1117 }
-html[data-theme="terminal"] .wg-collapse{ background:#0d1117; border:1px dashed rgba(255,209,102,.5); border-radius:0; color:#ffd166 }
 
 /* --- ZEN --- pill shapes, sage, soft transitions --- */
 html[data-theme="zen"] .wa-actions button,
@@ -609,7 +605,6 @@ html[data-theme="zen"] .wg input[type="checkbox"]::after{ background:#3a3a32; }
 html[data-theme="zen"] .wg input[type="checkbox"]:checked{ background:#3a3a32; border-color:#3a3a32 }
 html[data-theme="zen"] .wg input[type="checkbox"]:checked::after{ background:#ecead8; }
 html[data-theme="zen"] .wg{ border:1px solid rgba(58,58,50,.12); border-radius:14px }
-html[data-theme="zen"] .wg-collapse{ border:1px solid rgba(58,58,50,.25); border-radius:999px; background:transparent; color:#3a3a32 }
 
 /* ---------- SPLASH OVERLAY ---------- */
 .wa-splash{

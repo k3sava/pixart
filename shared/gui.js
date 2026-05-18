@@ -102,47 +102,7 @@
       // hides the body) but we only want the sideways slide via the chevron
       // handle. Clicking the title now does nothing — keep it as a header.
     }
-    _initCollapse(){
-      // Add a vertical collapse handle on the left edge. Click to slide
-      // the panel off-screen leaving only the handle.
-      let handle = this.el.querySelector('.wg-collapse');
-      if(!handle){
-        handle = document.createElement('button');
-        handle.className = 'wg-collapse';
-        handle.type = 'button';
-        handle.setAttribute('aria-label', 'Collapse controls');
-        this.el.prepend(handle);
-      }
-      const KEY = 'wa.panel.collapsed';
-      const apply = (collapsed) => {
-        this.el.classList.toggle('collapsed', !!collapsed);
-        document.body.classList.toggle('panel-collapsed', !!collapsed);
-        handle.setAttribute('aria-label', collapsed ? 'Expand controls' : 'Collapse controls');
-        // The .wa-stage right inset toggles via CSS the moment .panel-collapsed
-        // flips, so stage.clientWidth is already new. But the panel itself
-        // slides under a 220ms transition — schedule a second resize after
-        // the slide settles in case any effect's layout depends on the slot
-        // having fully cleared.
-        const kick = () => {
-          // Re-run applyRatio so the canvas style W/H pick up the new
-          // stage.clientWidth AND fire the resize event that effect.js'
-          // fitCanvas() listens to.
-          window.PIXSource?.applyRatio?.();
-          window.dispatchEvent(new Event('resize'));
-        };
-        kick();
-        setTimeout(kick, 260);
-      };
-      apply(localStorage.getItem(KEY) === '1');
-      const toggle = () => {
-        const next = !this.el.classList.contains('collapsed');
-        apply(next);
-        localStorage.setItem(KEY, next ? '1' : '0');
-      };
-      handle.addEventListener('click', toggle);
-      const headerBtn = document.getElementById('toggle-controls');
-      if(headerBtn) headerBtn.addEventListener('click', toggle);
-    }
+    _initCollapse(){}
     _initModeBar(){
       const animRow  = this.rows.get('animate');
       const interRow = this.rows.get('interactive');
