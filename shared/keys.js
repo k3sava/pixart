@@ -1,6 +1,6 @@
 // Global keyboard shortcuts + splash + nav overlay for pixart.
-// 39 effects total; keys 1-9 map to the first 9 alphabetically, 0 to the 10th.
-// The remaining 29 are reachable via the overlay nav (⌘K, /, or chevron click).
+// 41 effects total; keys 1-9 map to the first 9 alphabetically, 0 to the 10th.
+// The remaining 31 are reachable via the overlay nav (⌘K, /, or chevron click).
 (function(){
   'use strict';
   // Source of truth — mirrored in pixart/index.html and scripts/sync-nav.py.
@@ -126,7 +126,7 @@
       <div class="pix-nav-overlay-panel" role="document">
         <div class="pix-nav-overlay-head">
           <span class="pix-nav-overlay-icon">⌕</span>
-          <input type="search" id="pix-nav-search" autocomplete="off" placeholder="search 39 effects…" aria-label="Search effects">
+          <input type="search" id="pix-nav-search" autocomplete="off" placeholder="search 41 effects…" aria-label="Search effects">
           <button type="button" class="pix-nav-overlay-close" aria-label="Close">esc</button>
         </div>
         <div class="pix-nav-overlay-body">${groupsHTML}</div>
@@ -209,11 +209,11 @@
     el.innerHTML = `
       <div class="wa-splash-inner">
         <div class="wa-splash-title">pixart</div>
-        <div class="wa-splash-tag">39 effects. drop an image or video. then play.</div>
+        <div class="wa-splash-tag">41 effects. drop an image or video. then play.</div>
         <div class="wa-splash-grid">
           <span>${numbered}</span><span>jump to first 10 effects</span>
-          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (39 total)</span>
-          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 39</span>
+          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (41 total)</span>
+          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 41</span>
           <span><kbd>T</kbd></span><span>cycle theme</span>
           <span><kbd>O</kbd></span><span>open file picker</span>
           <span><kbd>R</kbd></span><span>cycle sample</span>

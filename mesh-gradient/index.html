@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Moiré — pixart</title>
+<title>Mesh Gradient — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../mesh-gradient/" title="Previous effect (mesh-gradient)" aria-label="Previous">‹</a>
-    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all effects">
-      <span class="effect-nav-name">moire</span>
+    <a class="effect-nav-arrow" href="../kaleidoscope/" title="Previous effect (kaleidoscope)" aria-label="Previous">‹</a>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 39 effects">
+      <span class="effect-nav-name">mesh-gradient</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../neon-glow/" title="Next effect (neon-glow)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../moire/" title="Next effect (moire)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -64,35 +64,17 @@
       <div class="wg-name">Background</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
-    <div class="wg-row wg-select" data-key="animMode">
-      <div class="wg-name">Mode</div>
-      <div class="wg-widget">
-        <select>
-          <option value="rotate">rotate</option>
-          <option value="drift">drift</option>
-          <option value="pulse">pulse</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-select" data-key="mode">
-      <div class="wg-name">Screen type</div>
-      <div class="wg-widget">
-        <select>
-          <option value="lines">lines</option>
-          <option value="dots">dots</option>
-          <option value="radial">radial</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="frequency"  data-min="5"   data-max="80"  data-step="1">  <div class="wg-name">Frequency</div>    <div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="angleDelta" data-min="0.1" data-max="15"  data-step="0.1"><div class="wg-name">Angle delta</div>  <div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="angle"      data-min="0"   data-max="180" data-step="1">  <div class="wg-name">Base angle</div>   <div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="contrast"   data-min="0"   data-max="100" data-step="1">  <div class="wg-name">Contrast</div>     <div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-bool"   data-key="invert"><div class="wg-name">Invert</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="drift">drift</option><option value="morph">morph</option><option value="pulse">pulse</option></select></div></div>
+    <div class="wg-row wg-bool" data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-bool" data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-slider" data-key="resolution" data-min="2" data-max="16" data-step="1"><div class="wg-name">Resolution</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="smoothing" data-min="0" data-max="100" data-step="1"><div class="wg-name">Smoothing</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="wobble" data-min="0" data-max="100" data-step="1"><div class="wg-name">Wobble</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="saturation" data-min="0" data-max="200" data-step="1"><div class="wg-name">Saturation</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="blend" data-min="0" data-max="100" data-step="1"><div class="wg-name">Blend</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-bool" data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
   </div>
+  <p class="wg-credit">inspired by <a href="https://www.figma.com/" target="_blank" rel="noopener">figma mesh gradients</a></p>
 </aside>
 
 <div class="wa-rec" role="status"><span class="dot"></span><span class="label">Recording</span><div class="track"><div class="bar"></div></div></div>
