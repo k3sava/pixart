@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Voronoi — pixart</title>
+<title>Glitch Scan — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../superpixel/" title="Previous effect (superpixel)" aria-label="Previous">‹</a>
-    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 28 effects">
-      <span class="effect-nav-name">voronoi</span>
+    <a class="effect-nav-arrow" href="../gradients/" title="Previous effect (gradients)" aria-label="Previous">‹</a>
+    <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all 32 effects">
+      <span class="effect-nav-name">glitch-scan</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../watercolor/" title="Next effect (watercolor)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../halftone-cmyk/" title="Next effect (halftone-cmyk)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -64,48 +64,25 @@
       <div class="wg-name">Background</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
-    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="hue">hue</option><option value="tone">tone</option></select></div></div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="burst">burst</option>
+          <option value="drift">drift</option>
+          <option value="storm">storm</option>
+        </select>
+      </div>
+    </div>
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-slider" data-key="seedCount" data-min="16" data-max="1000" data-step="1"><div class="wg-name">Cell count</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-select" data-key="seedSource">
-      <div class="wg-name">Cell placement</div>
-      <div class="wg-widget">
-        <select>
-          <option value="poisson">poisson</option>
-          <option value="luminance-peaks">luminance-peaks</option>
-          <option value="edge-density">edge-density</option>
-          <option value="uniform-grid">uniform-grid</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-select" data-key="metric">
-      <div class="wg-name">Distance</div>
-      <div class="wg-widget">
-        <select>
-          <option value="euclidean">euclidean</option>
-          <option value="manhattan">manhattan</option>
-          <option value="chebyshev">chebyshev</option>
-          <option value="secondary">secondary</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="relax" data-min="0" data-max="6" data-step="1"><div class="wg-name">Settle</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="borderWidth" data-min="0" data-max="3" data-step="0.1"><div class="wg-name">Border width</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-color" data-key="borderColor"><div class="wg-name">Border colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
-    <div class="wg-row wg-select" data-key="colorMode">
-      <div class="wg-name">Colour mode</div>
-      <div class="wg-widget">
-        <select>
-          <option value="sample">sample</option>
-          <option value="average">average</option>
-          <option value="gradient">gradient</option>
-        </select>
-      </div>
-    </div>
-    <div class="wg-row wg-slider" data-key="paletteShift" data-min="0" data-max="360" data-step="5"><div class="wg-name">Hue shift</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="intensity"  data-min="0"   data-max="100" data-step="1"><div class="wg-name">Intensity</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="scanLines"  data-min="0"   data-max="100" data-step="1"><div class="wg-name">Scan density</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="tears"      data-min="0"   data-max="10"  data-step="1"><div class="wg-name">Block tears</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="colorSplit" data-min="0"   data-max="100" data-step="1"><div class="wg-name">Color split</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="speed"      data-min="0.5" data-max="4"   data-step="0.1"><div class="wg-name">Speed</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
+    <div class="wg-row wg-slider" data-key="seed"       data-min="0"   data-max="999" data-step="1"><div class="wg-name">Seed</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-  
   </div>
 </aside>
 
