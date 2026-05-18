@@ -209,11 +209,11 @@
     el.innerHTML = `
       <div class="wa-splash-inner">
         <div class="wa-splash-title">pixart</div>
-        <div class="wa-splash-tag">33 effects. drop an image or video. then play.</div>
+        <div class="wa-splash-tag">34 effects. drop an image or video. then play.</div>
         <div class="wa-splash-grid">
           <span>${numbered}</span><span>jump to first 10 effects</span>
-          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (33 total)</span>
-          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 32</span>
+          <span><kbd>←</kbd> <kbd>→</kbd></span><span>previous / next (34 total)</span>
+          <span><kbd>/</kbd> or <kbd>⌘</kbd><kbd>K</kbd></span><span>open nav · search all 34</span>
           <span><kbd>T</kbd></span><span>cycle theme</span>
           <span><kbd>O</kbd></span><span>open file picker</span>
           <span><kbd>R</kbd></span><span>cycle sample</span>
