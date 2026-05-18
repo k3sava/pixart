@@ -120,7 +120,7 @@ function fitCanvas(){
 function resample(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
-  const aspect = srcCv.height / srcCv.width;
+  const aspect = (window.PIXSource?.height || srcCv.height) / (window.PIXSource?.width || srcCv.width);
   const W = params.canvasSize;
   const H = Math.max(1, Math.round(W * aspect));
   if(baseBuf.width !== W || baseBuf.height !== H){

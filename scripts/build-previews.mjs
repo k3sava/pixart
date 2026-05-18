@@ -22,10 +22,12 @@ const OUT = resolve(ROOT, 'assets/previews');
 const BASE = process.env.PIXART_BASE || 'http://localhost:8001';
 
 const ALL_EFFECTS = [
-  'ascii','bevel','bloom','cellular','contour','crosshatch','crt','displace',
-  'distort','dithering','dots','edge','film-grain','flow-field','gradients',
-  'halftone-cmyk','ink-wash','kaleidoscope','mosaic','patterns','pixel-sort',
-  'recolor','rgb-shift','scatter','slit-scan','stippling','voronoi','watercolor',
+  'ascii','bevel','bloom','caustic','cellular','chromatic-diffusion','cloth','contour',
+  'crosshatch','crt','datamosh','displace','distort','dithering',
+  'dots','edge','film-grain','flow-field','flow-warp','glitch-scan','gradients',
+  'halftone-cmyk','ink-wash','kaleidoscope','mesh-gradient','moire','mosaic','neon-glow',
+  'patterns','photomosaic','pixel-sort','prismatic','recolor','rgb-shift','scatter','slit-scan',
+  'split-tone','stippling','superpixel','voronoi','watercolor',
 ];
 const onlyArg = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const skipExisting = process.argv.includes('--skip-existing');
@@ -60,29 +62,40 @@ async function captureSlug(browser, slug) {
       .wa-top, .wg, .wa-bottom, .wa-rec,
       #pix-splash, #pix-nav-overlay { display: none !important; }
       html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #000 !important; }
-      .wa-stage { position: fixed !important; inset: 0 !important; background: #000 !important; }
     ` });
 
     // Wait for PIXSource to load the default sample image.
     await page.waitForTimeout(800);
 
-    // Disable applyRatio and force canvas to fill the full viewport.
-    // cv.style.setProperty(..., 'important') sets inline !important which wins
-    // over all stylesheet rules including the applyRatio inline assignments.
+    // Force the stage + canvas to fill the full viewport.
+    // The body class trick: adding panel-collapsed ensures the more-specific
+    // `body:not(.panel-collapsed) .wa-stage { right:320px }` rule does not apply.
+    // Then we also force canvas via inline styles (highest CSS priority).
     await page.evaluate(([vw, vh]) => {
+      // Neutralise the panel-open right-offset on .wa-stage.
+      document.body.classList.add('panel-collapsed');
+
+      const stage = document.querySelector('.wa-stage');
+      if (stage) {
+        stage.style.setProperty('position', 'fixed',   'important');
+        stage.style.setProperty('inset',    '0',       'important');
+        stage.style.setProperty('right',    '0px',     'important');
+        stage.style.setProperty('background', '#000',  'important');
+      }
+
       // Kill applyRatio so it can't shrink the canvas after we resize.
       if (window.PIXSource) window.PIXSource.applyRatio = () => {};
 
       const cv = document.getElementById('cv');
       if (!cv) return;
-      cv.style.setProperty('position',  'fixed',      'important');
-      cv.style.setProperty('left',      '0px',        'important');
-      cv.style.setProperty('top',       '0px',        'important');
-      cv.style.setProperty('width',     vw + 'px',    'important');
-      cv.style.setProperty('height',    vh + 'px',    'important');
-      cv.style.setProperty('transform', 'none',       'important');
-      cv.style.setProperty('max-width', 'none',       'important');
-      cv.style.setProperty('max-height','none',       'important');
+      cv.style.setProperty('position',   'fixed', 'important');
+      cv.style.setProperty('left',       '0px',   'important');
+      cv.style.setProperty('top',        '0px',   'important');
+      cv.style.setProperty('width',      vw + 'px', 'important');
+      cv.style.setProperty('height',     vh + 'px', 'important');
+      cv.style.setProperty('transform',  'none',  'important');
+      cv.style.setProperty('max-width',  'none',  'important');
+      cv.style.setProperty('max-height', 'none',  'important');
 
       // Fire both resize signals so each effect's fitCanvas() picks up the
       // new dimensions and repaints at full resolution.
