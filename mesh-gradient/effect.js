@@ -141,7 +141,7 @@ function adjustSaturation(r, g, b, sat01){
 function preprocess(){
   const srcCv = window.PIXSource?.getCanvas();
   if(!srcCv) return;
-  const aspect = (window.PIXSource?.height || srcCv.height) / (window.PIXSource?.width || srcCv.width);
+  const aspect = cv.height / Math.max(1, cv.width);
   const W = params.canvasSize;
   const H = Math.max(1, Math.round(W * aspect));
   if(srcBuf.width !== W || srcBuf.height !== H){
@@ -332,11 +332,7 @@ function paint(){
   if(!preprocessed){ ctx.restore(); return; }
 
   const imgW = preprocessed.width, imgH = preprocessed.height;
-  const aspect = imgW / imgH;
-  let dw, dh;
-  if(W / H > aspect){ dh = H * 0.96; dw = dh * aspect; }
-  else              { dw = W * 0.96; dh = dw / aspect; }
-  const ox = (W - dw) / 2, oy = (H - dh) / 2;
+  const dw = W, dh = H, ox = 0, oy = 0;  // srcBuf matches canvas aspect from preprocess()
 
   if(!params.showEffect){
     ctx.imageSmoothingEnabled = true;
@@ -370,9 +366,9 @@ function applyMode(t01){
   const mode = params.mode;
 
   if(mode === 'drift'){
-    // Drift: hue-rotate the mesh colours by up to 60° back and forth.
+    // Drift: continuously rotate hue through the full spectrum (0→360°, loops seamlessly via HSL wrap).
     const base = params._driftHue;
-    params._driftHue = pingPong(t01) * 60;
+    params._driftHue = t01 * 360;
     return () => { params._driftHue = base; };
   }
   if(mode === 'morph'){
