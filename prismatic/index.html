@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Contour — pixart</title>
+<title>Prismatic — pixart</title>
 <link rel="stylesheet" href="../shared/chrome.css">
 <link rel="stylesheet" href="../shared/gui.css">
 <script src="../shared/theme.js"></script>
@@ -23,12 +23,12 @@
   </nav>
   <div class="grow"></div>
   <nav class="effect-nav compact" aria-label="Effect navigation">
-    <a class="effect-nav-arrow" href="../cloth/" title="Previous effect (cloth)" aria-label="Previous">‹</a>
+    <a class="effect-nav-arrow" href="../pixel-sort/" title="Previous effect (pixel-sort)" aria-label="Previous">‹</a>
     <button type="button" class="effect-nav-current" id="effect-nav-open" aria-haspopup="dialog" aria-expanded="false" title="Browse all effects">
-      <span class="effect-nav-name">contour</span>
+      <span class="effect-nav-name">prismatic</span>
       <span class="effect-nav-chev">›</span>
     </button>
-    <a class="effect-nav-arrow" href="../crosshatch/" title="Next effect (crosshatch)" aria-label="Next">›</a>
+    <a class="effect-nav-arrow" href="../recolor/" title="Next effect (recolor)" aria-label="Next">›</a>
   </nav>
   <div class="wa-actions">
     <button id="help-btn" title="Keyboard shortcuts">?</button>
@@ -64,17 +64,34 @@
       <div class="wg-name">Background</div>
       <div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div>
     </div>
-    <div class="wg-row wg-select" data-key="mode"><div class="wg-name">Mode</div><div class="wg-widget"><select><option value="breath">breath</option><option value="tone">tone</option></select></div></div>
+    <div class="wg-row wg-select" data-key="mode">
+      <div class="wg-name">Hue source</div>
+      <div class="wg-widget">
+        <select>
+          <option value="luminance">luminance</option>
+          <option value="position">position</option>
+          <option value="noise">noise</option>
+        </select>
+      </div>
+    </div>
+    <div class="wg-row wg-select" data-key="animMode">
+      <div class="wg-name">Anim mode</div>
+      <div class="wg-widget">
+        <select>
+          <option value="sweep">sweep</option>
+          <option value="breathe">breathe</option>
+          <option value="flow">flow</option>
+        </select>
+      </div>
+    </div>
     <div class="wg-row wg-bool"   data-key="animate"><div class="wg-name">Animate</div><label class="wg-widget"><input type="checkbox"></label></div>
     <div class="wg-row wg-bool"   data-key="interactive"><div class="wg-name">Cursor control</div><label class="wg-widget"><input type="checkbox"></label></div>
-    <div class="wg-row wg-slider" data-key="levels"      data-min="2" data-max="40" data-step="1"><div class="wg-name">Line count</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
-    <div class="wg-row wg-slider" data-key="smoothing"   data-min="0" data-max="1" data-step="0.05"><div class="wg-name">Smoothing</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-slider" data-key="lineWidth"   data-min="0.5" data-max="6" data-step="0.1"><div class="wg-name">Line width</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="decimal"></div></div>
-    <div class="wg-row wg-color"  data-key="lineColor"><div class="wg-name">Line colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
-    <div class="wg-row wg-color"  data-key="bgColor"><div class="wg-name">Background colour</div><div class="wg-widget"><div class="wg-swatch"><input type="color"></div><input type="text" spellcheck="false"></div></div>
-    <div class="wg-row wg-bool"   data-key="fillBands"><div class="wg-name">Fill bands</div><label class="wg-widget"><input type="checkbox"></label></div>
+    <div class="wg-row wg-slider" data-key="spread"       data-min="0" data-max="100" data-step="1"><div class="wg-name">Spread</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="angle"        data-min="0" data-max="360" data-step="1"><div class="wg-name">Angle</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="satBoost"     data-min="0" data-max="100" data-step="1"><div class="wg-name">Sat boost</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="blend"        data-min="0" data-max="100" data-step="1"><div class="wg-name">Blend</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
+    <div class="wg-row wg-slider" data-key="displacement" data-min="0" data-max="50"  data-step="1"><div class="wg-name">Displacement</div><div class="wg-widget"><div class="wg-track"><div class="wg-fill"></div></div><input type="number" inputmode="numeric"></div></div>
     <div class="wg-row wg-bool"   data-key="showEffect"><div class="wg-name">Show effect</div><label class="wg-widget"><input type="checkbox"></label></div>
-  
   </div>
 </aside>
 

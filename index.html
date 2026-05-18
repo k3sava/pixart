@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>pixart — 37 image effects</title>
-<meta name="description" content="A wall of 37 client-side image effects: ASCII, halftone, dither, ink-wash, kaleidoscope, slit-scan, neon-glow, moiré, flow-field, caustic, and more. Drop in an image, pick an effect, play.">
+<title>pixart — 39 image effects</title>
+<meta name="description" content="A wall of 39 client-side image effects: ASCII, halftone, dither, ink-wash, kaleidoscope, slit-scan, neon-glow, moiré, flow-field, caustic, and more. Drop in an image, pick an effect, play.">
 <link rel="canonical" href="https://toys.iamkesava.com/pixart/">
 <link rel="stylesheet" href="shared/chrome.css">
 <link rel="stylesheet" href="shared/theme-tokens.css">
@@ -293,8 +293,8 @@
 <main class="home-wrap">
   <div class="home-lede">
     <h1 class="home-title">pixart</h1>
-    <p class="home-sub">37 client-side image effects. drop a picture, pick a treatment, play.</p>
-    <div class="home-count" id="home-count">37 of 37</div>
+    <p class="home-sub">39 client-side image effects. drop a picture, pick a treatment, play.</p>
+    <div class="home-count" id="home-count">39 of 39</div>
   </div>
 
   <div class="home-controls">
@@ -335,7 +335,7 @@
 <script>
 (function(){
   'use strict';
-  // 37 effects with category. Source of truth shared with shared/keys.js
+  // 39 effects with category. Source of truth shared with shared/keys.js
   // and scripts/sync-nav.py — keep aligned.
   const EFFECTS = [
     { slug:'ascii',          name:'ascii',          cat:'Type' },
@@ -344,6 +344,7 @@
     { slug:'caustic',        name:'caustic',        cat:'Cinematic' },
     { slug:'cellular',       name:'cellular',       cat:'Generative' },
     { slug:'chromatic-diffusion', name:'chromatic diffusion', cat:'Cinematic' },
+    { slug:'cloth',          name:'cloth',          cat:'Geometric' },
     { slug:'contour',        name:'contour',        cat:'Tonal' },
     { slug:'crosshatch',     name:'crosshatch',     cat:'Painterly' },
     { slug:'crt',            name:'crt',            cat:'Cinematic' },
@@ -367,6 +368,7 @@
     { slug:'patterns',       name:'patterns',       cat:'Generative' },
     { slug:'photomosaic',    name:'photomosaic',    cat:'Geometric' },
     { slug:'pixel-sort',     name:'pixel sort',     cat:'Glitch' },
+    { slug:'prismatic',      name:'prismatic',      cat:'Cinematic' },
     { slug:'recolor',        name:'recolor',        cat:'Tonal' },
     { slug:'rgb-shift',      name:'rgb shift',      cat:'Cinematic' },
     { slug:'scatter',        name:'scatter',        cat:'Glitch' },
