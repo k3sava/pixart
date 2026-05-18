@@ -178,7 +178,8 @@ body.wa-effect{ background:#000; }
 }
 .effect-switcher .effect-nav-arrow{
   display:inline-flex; align-items:center; justify-content:center;
-  width:26px;
+  width:26px; padding:0; margin:0;
+  height:100%; min-height:0; box-sizing:border-box;
   border:none; border-radius:0;
   color:var(--text); opacity:.6;
   text-decoration:none;
@@ -186,6 +187,7 @@ body.wa-effect{ background:#000; }
   background:transparent;
   transition:opacity .15s, background .15s;
   flex:0 0 auto;
+  cursor:pointer;
 }
 .effect-switcher .effect-nav-arrow:first-child{
   border-right:1px solid var(--bar-border);
