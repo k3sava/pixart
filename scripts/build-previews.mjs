@@ -50,6 +50,9 @@ async function captureSlug(browser, slug) {
     try { localStorage.setItem('pix.splash.seen', '1'); } catch {}
     // Force landscape ratio so the effect initialises expecting landscape dims.
     try { localStorage.setItem('pix.ratio', 'landscape'); } catch {}
+    // Load the 14:9 preview sample (matches 560:360 canvas ratio) so effects
+    // render with minimal letterbox bars.
+    try { localStorage.setItem('pix.sourceUrl', '../assets/samples/preview.jpg'); } catch {}
   });
   const page = await ctx.newPage();
   const tmp = mkdtempSync(join(tmpdir(), `pix-${slug}-`));
@@ -64,8 +67,11 @@ async function captureSlug(browser, slug) {
       html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #000 !important; }
     ` });
 
-    // Wait for PIXSource to load the default sample image.
-    await page.waitForTimeout(800);
+    // Wait until the REAL image has loaded (PIXSource.width > 1300 distinguishes
+    // the 1600px samples from the 1280×1280 square placeholder).
+    await page.waitForFunction(() =>
+      window.PIXSource?.isReady() && window.PIXSource.width > 1300,
+    { timeout: 8000 }).catch(() => {});  // best-effort; proceed even if slow
 
     // Force the stage + canvas to fill the full viewport.
     // The body class trick: adding panel-collapsed ensures the more-specific
@@ -103,6 +109,11 @@ async function captureSlug(browser, slug) {
       window.dispatchEvent(new Event('resize'));
     }, [VIEWPORT.width, VIEWPORT.height]);
 
+    await page.waitForTimeout(600);
+
+    // Drive one free render so effects re-preprocess at the new canvas dimensions
+    // with the real (non-placeholder) source image before we freeze the RAF.
+    await page.evaluate(() => { window.WAEffect.renderAt?.(0); });
     await page.waitForTimeout(400);
 
     // Toggle Animate ON (so renderAt drives applyMode / animation logic)

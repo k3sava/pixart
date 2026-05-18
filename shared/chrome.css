@@ -358,6 +358,7 @@ body.wa-effect{ background:#000; }
 .wa-actions button svg{ display:block; }
 .wa-actions button#export-png,
 .wa-actions button#export-mp4{
+  height:28px; box-sizing:border-box;
   padding:5px 10px;
   display:inline-flex;
   align-items:center;
