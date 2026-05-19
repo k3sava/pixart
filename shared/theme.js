@@ -10,7 +10,8 @@
     { id:'terminal',  label:'phosphor',  icon:'>' },
     { id:'zen',       label:'zen',       icon:'◯' },
   ];
-  const KEY = 'wa.theme';
+  const KEY = 'kami.theme';
+  const LEGACY_KEY = 'wa.theme';
 
   function apply(id){
     if(id === 'default'){ document.documentElement.removeAttribute('data-theme'); }
@@ -27,7 +28,11 @@
       opt.classList.toggle('active', opt.dataset.theme === id);
     });
   }
-  function current(){ return localStorage.getItem(KEY) || 'default'; }
+  function current(){
+    let v = localStorage.getItem(KEY);
+    if(!v){ v = localStorage.getItem(LEGACY_KEY); if(v) try{ localStorage.setItem(KEY,v); }catch(_){} }
+    return v || 'default';
+  }
   function set(id){ localStorage.setItem(KEY, id); apply(id); }
 
   // Mount: build the picker dropdown if not already there.
