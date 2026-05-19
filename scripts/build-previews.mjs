@@ -22,12 +22,12 @@ const OUT = resolve(ROOT, 'assets/previews');
 const BASE = process.env.PIXART_BASE || 'http://localhost:8001';
 
 const ALL_EFFECTS = [
-  'ascii','bevel','bloom','caustic','cellular','chromatic-diffusion','cloth','contour',
+  'ascii','bevel','bloom','caustic','cellular','chromatic-diffusion','cloth','collapse','contour',
   'crosshatch','crt','datamosh','displace','distort','dithering',
-  'dots','edge','film-grain','flow-field','flow-warp','glitch-scan','gradients',
-  'halftone-cmyk','ink-wash','kaleidoscope','mesh-gradient','moire','mosaic','neon-glow',
-  'patterns','photomosaic','pixel-sort','prismatic','recolor','rgb-shift','scatter','slit-scan',
-  'split-tone','stippling','superpixel','voronoi','watercolor',
+  'dots','edge','erosion','film-grain','flow-field','flow-warp','glitch-scan','gradients',
+  'halftone-cmyk','ink-wash','kaleido-morph','kaleidoscope','mesh-gradient','moire','mosaic','neon-glow',
+  'patterns','photomosaic','pixel-sort','prismatic','recolor','rgb-shift','scatter','sift','slit-scan',
+  'split-tone','stack','stippling','superpixel','voronoi','watercolor','zoom-blur',
 ];
 const onlyArg = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const skipExisting = process.argv.includes('--skip-existing');
